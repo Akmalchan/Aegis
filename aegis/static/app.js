@@ -274,6 +274,11 @@
     var scans = events.filter(function (e) { return e.kind === "scan" && e.repo; });
     if (!scans.length) return;
     var now = Date.now() / 1000;
+    // only runs a real git push started (not warden/cron/backfill/manual scans)
+    var real = scans.filter(function (e) {
+      return /^(push|pull_request)$/.test(e.trigger || "") && !/warden/.test(e.agent || "");
+    });
+    if (real.length) scans = real;
     var anchor = scans.find(function (e) { return e.verdict === "unsafe" && now - e.ts < 1800; }) || scans[0];
     function runMerged(a) {
       if (a.verdict !== "unsafe") return false;
@@ -282,10 +287,21 @@
       var g = later.some(function (e) { return e.kind === "status_set" && e.state === "success" && e.ts > a.ts; });
       return g && later.some(function (e) { return e.kind === "scan" && e !== a && e.verdict === "safe"; });
     }
-    var liveRun = false;  // a newer run still in flight: show the last complete one, flag the live one
-    if (anchor.verdict === "unsafe" && !runMerged(anchor) && now - anchor.ts > 180) {
-      var done8 = scans.find(function (e) { return e.verdict === "unsafe" && e.ts < anchor.ts && runMerged(e); });
-      if (done8) { anchor = done8; liveRun = true; }
+    var liveRun = false, prevRun = false;
+    // newest push run stalled (>5 min without a new event, never merged): show the last run that reached step 8
+    function reached8(a) {
+      if (a.verdict === "unsafe") return runMerged(a);
+      return events.some(function (e) { return e.repo === a.repo && e.kind === "status_set" && e.state === "success" && e.ts > a.ts; });
+    }
+    if (!reached8(anchor)) {
+      var lastTs = anchor.ts;
+      events.forEach(function (e) { if (e.repo === anchor.repo && e.ts > lastTs && !/warden/.test(e.agent || "") && !/^(cron|time|backfill|manual)$/.test(e.trigger || "")) lastTs = e.ts; });
+      if (now - lastTs > 300) {
+        var done8 = scans.find(function (e) { return e.verdict === "unsafe" && e.ts < anchor.ts && runMerged(e); });
+        // no run logged a merge yet: fall back to the furthest one (fix PR opened)
+        if (!done8) done8 = scans.find(function (e) { return e.verdict === "unsafe" && e.ts < anchor.ts && events.some(function (x) { return x.repo === e.repo && x.kind === "pr_opened" && x.ts >= e.ts; }); });
+        if (done8) { anchor = done8; prevRun = true; }
+      }
     }
     var repo = anchor.repo;
     var wake = events.find(function (e) { return e.kind === "wake" && e.repo === repo && e.ts <= anchor.ts + 1 && anchor.ts - e.ts < 120; });
@@ -320,7 +336,7 @@
     }
     var v = unsafe ? "unsafe" : "safe";
     setHTML($("incTitle"), esc(short(repo)) + '<span class="v ' + v + '">' + v + "</span>");
-    setHTML($("incHint"), esc(agentName(anchor.agent) + " · " + ago(t0)) + (liveRun ? ' <span class="live-chip">live run in progress</span>' : ""));
+    setHTML($("incHint"), esc(agentName(anchor.agent) + " · " + ago(t0)) + (liveRun ? ' <span class="live-chip">live run in progress</span>' : "") + (prevRun ? ' <span class="prev-run">previous run · ' + esc(ago(t0)) + "</span>" : ""));
     var lastDone = -1;
     steps.forEach(function (st, i) { if (/done/.test(st.cls)) lastDone = i; });
     setHTML($("pipeline"), steps.map(function (st, i) {

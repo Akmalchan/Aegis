@@ -42,6 +42,7 @@
 
   <section class="block lp-block">
     <div class="block-head"><h2>Latest push.</h2><span class="sub"><span id="incTitle">No push yet</span> · <span id="incHint">Waiting for a push</span></span></div>
+    <p class="sec-cap">What the agents did with the most recent git push, step by step.</p>
     <div class="tl-card">
       <ol class="htl" id="pipeline"></ol>
     </div>
@@ -51,10 +52,12 @@
     <div class="split fleet-split">
       <div class="dark-card map-card">
         <div class="card-label"><span class="pill-y">Live</span> Agents and the repos they guard <span class="sub" id="fleetHint"></span></div>
+        <p class="sec-cap">Each sentinel agent and the three repos it guards.</p>
         <svg id="map" viewBox="0 0 640 400" role="img" aria-label="Agents and the repositories they guard"></svg>
       </div>
       <div class="roster-wrap">
         <div class="card-label"><span class="pill-y">Agents</span> <span id="guildHint">Guild · connecting</span></div>
+        <p class="sec-cap">Every agent on Guild, what it did last.</p>
         <div class="agent-grid" id="cards"><div class="empty">Waiting for Guild…</div></div>
       </div>
     </div>
