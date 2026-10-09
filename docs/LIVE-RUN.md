@@ -198,3 +198,79 @@ closing keywords in PR text. Reset at 21:23:43 (`2662bbd`, clean).
 Gap: #68 stayed open. The merge-push session listed `labels=aegis` Issues, #68 was not among them (no label), so step 4.3
 had no candidates and never ran `scan_full`/verifier. Fix (remediator **1.0.9** `01a12293-228a-cf83-0000-a48ae9428606`,
 21:30:30): mandatory `github_issues_add_labels ["aegis","security"]` right after `github_issues_create`.
+
+## Round 3 (final flow, auto-merge) (S3, 21:35–22:12 UTC)
+
+Context: from ~21:36 to ~21:52 every Guild session failed ("invalid model ID" / "No LLM key"); the lead pinned the
+workspace to OpenAI gpt-4o. Two of my rounds died in that window (21:36 push `68827eb`: remediator crashed with a
+1963-char `tool_calls[0].id` right after `fix_code`; 21:50 push `552aa9b`: the sentinel ran the `remediation-playbook`
+skill instead of the remediator and filed `severity:critical` Issues #73/#74 + base64 PR #75 by hand). gpt-4o also
+returned `ignored: "no head commit message to scan"` on a normal push (21:54 `896e7bb`).
+
+Prompt changes (sentinel only; remediator stays **1.0.9** `01a12293-228a-cf83-0000-a48ae9428606`):
+- **1.0.10** `01a122a7-58da-cf83-0000-32ef5a84c9c8` (21:52): `skillsTools` removed from the sentinel and the "follow
+  the skill rubric" paragraph replaced by: outside the INLINE FALLBACK never call `github_issues_create`,
+  `github_pulls_create`, `github_git_create_ref`, `create_or_update_file_contents` yourself; Issue/branch/commit/PR/merge
+  belong to `aegis_remediator`.
+- **1.0.11** `01a122af-bf46-cf83-0000-4f8474daa309` (22:01): `ignored` only for aegis/ branches and deleted branches,
+  a default-branch push is always scanned; ordering puts injection findings before hard-coded secrets inside a severity.
+- **1.0.12** `01a122b7-f120-cf83-0000-5c5f35802911` (22:10, **not yet exercised by a run**): step 4.3 (scan_full +
+  verifier) marked mandatory whenever OPEN is non-empty, with a self-check before leaving step 4.
+
+### Run 3d on demo-target: merge proven (push `d1a65a3`, session `01a122b4-296d-5f3d-0000-2b2ad441adb3`, sentinel 1.0.11)
+
+| time (UTC) | after push | what |
+|---|---|---|
+| 22:04:47 | 0 | push vulnerable `app.py` to main |
+| 22:05:11 | 24 s | status **failure** "4 finding(s)" |
+| 22:06:29 | 1 min 42 s | fix commit `751dced` on `aegis/fix-*` (Git Data API, fix_code patch) |
+| 22:06:59 | 2 min 12 s | story Issue **#76** (labelled `aegis,security`) |
+| 22:07:09 | 2 min 22 s | PR **#77** |
+| 22:07:15 | 2 min 28 s | status success "fix verified: 2 layers passed" on the fix sha, label `aegis:verified` |
+| 22:07:21 | 2 min 34 s | **PR #77 merged by the agent** (`github_pulls_merge`, merged_by `app/guild-ai-platform`) → main `cd39fcf` |
+| 22:07:44 | 2 min 57 s | merge-push session `01a122b4-ea61-5f3d-0000-d72f582f0dd8` → status **success** "no new findings" |
+| 22:08–22:10 | | Issues #78 (SQLi), #79 (debug), #80 (0.0.0.0) in `issue_only` mode, no PR |
+| — | | **Issue #76 NOT closed.** The merge session listed the Issues, posted the ✅ commit comment and stopped: gpt-4o skipped 4.3 (no `scan_full`, no verifier). Round 2 failed the same step for a different reason (unlabelled Issue). 1.0.12 targets this; untested. |
+
+Links: https://github.com/andriidrok1/aegis-demo-target/pull/77 ·
+https://github.com/andriidrok1/aegis-demo-target/issues/76 ·
+https://app.guild.ai/sessions/01a122b4-296d-5f3d-0000-2b2ad441adb3 ·
+https://app.guild.ai/sessions/01a122b4-ea61-5f3d-0000-d72f582f0dd8
+
+Demo-target is left as the run ended: main `cd39fcf` green, Issues #76 #78 #79 #80 open (reset block above).
+
+## snipbox pre-run (andriidrok1/snipbox, push to `fork` only)
+
+Two takes, both stopped at the verify gate, so **no PR and no merge on snipbox**:
+
+| take | push | ❌ status | story Issue | decision |
+|---|---|---|---|---|
+| 1 (sentinel 1.0.10) | 21:54:29 `7d99545` | 21:54:57 (28 s) | #2 at 21:56:34 (2 min 05 s) | regression ❌, targeted ❌ at head → no PR |
+| 2 (sentinel 1.0.11) | 22:04:49 `dfbee2e` | 22:05:09 (20 s) | #4 at 22:06:35 (1 min 46 s) | static ✅ 7.4 s, targeted ✅ (fails at base, passes at head), **regression ❌** "pytest exit 2: 1 error" → no PR |
+
+Why: the agent picks `aegis.hardcoded-secret` in `snipbox/config.py` (gpt-4o ignored the "injection first" ordering),
+the scanner's patch is `ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]`, and snipbox's own test suite imports the config
+without that env var, so collection errors out. The gate did its job (nothing reached main), but the merge beat cannot
+come from snipbox with this finding. Options for a merge on snipbox: scanner `fix_code` emits
+`os.environ.get("ADMIN_API_KEY", "")` for secrets, or `verify_fix` runs the suite with the env vars the patch reads, or
+the remediator is forced to take the SQL injection (`search_snippets`) as the primary finding.
+
+Sessions: take 1 https://app.guild.ai/sessions/01a122a9-38ea-5f3d-0000-ea94c3b77b61, take 2 https://app.guild.ai/sessions/01a122b2-9d61-5f3d-0000-9688ca47ab1c; trigger `01a12266-19dd-6639-0000-0ea59dc42e54`
+(`guild trigger sessions 01a12266-19dd-6639-0000-0ea59dc42e54`).
+
+State left: fork main `432cd7b` = `Revert "feat: snippet search endpoint"` (content = 0.4.2), all `aegis` Issues
+closed, no `aegis/*` branches, drift-report Issues #1 #3 (label `aegis-report`) left open.
+
+### Reset snipbox for a live take
+
+```bash
+R=andriidrok1/snipbox
+cd ~/PycharmProjects/snipbox && git fetch fork && git checkout main && git reset --hard fork/main
+gh pr list -R $R --state open --json number --jq '.[].number' | xargs -r -I{} gh pr close {} -R $R --delete-branch
+gh issue list -R $R --state open --label aegis --json number --jq '.[].number' | xargs -r -I{} gh issue close {} -R $R -c "reset for live take"
+gh api repos/$R/branches --jq '.[].name' | grep '^aegis/' | xargs -r -I{} gh api -X DELETE repos/$R/git/refs/heads/{}
+# if main still has the vulnerable commit on top: normal revert, never force-push
+git log --oneline -1 | grep -q "snippet search endpoint" && git revert --no-edit HEAD && git push fork main
+# wait for the green status on that push, then the live take:
+git am ~/PycharmProjects/aegis/demo/snipbox/vuln.patch && git push fork main
+```

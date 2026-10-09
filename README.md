@@ -72,12 +72,14 @@ From real GitHub webhooks through Guild on `andriidrok1/aegis-demo-target` ([`do
 | Measured | Time after `git push` |
 |---|---|
 | Guild session spawned | 1 to 4 s |
-| Red commit status on a vulnerable push | ≤ 26 s (36 s in the final flow) |
-| Green status on a harmless push | 35 s |
-| Issue opened | 74 s |
-| Fix PR opened | 96 s (3 min 00 s in the final one-fix-per-push flow, which includes the verify gate) |
-| PR labelled `aegis:verified` | 112 s |
-| PR merged by the agent | 3 min 23 s |
+| Red commit status on a vulnerable push | 20 to 28 s (24 s in the final run) |
+| Green status on a harmless push | 22 to 48 s |
+| Story Issue opened | 1 min 46 s to 2 min 12 s |
+| Fix PR opened | 2 min 22 s (final one-fix-per-push flow, after the verify gate) |
+| PR labelled `aegis:verified` | 2 min 28 s |
+| PR merged by the agent | 2 min 34 s (`github_pulls_merge`, PR #77) |
+| Green status on the merge commit | 2 min 57 s |
+| Story Issue closed after merge | not yet: the merge-push session skipped the full-scan/verifier step in both auto-merge runs (fix published, untested) |
 | `verify_fix` | static 3.8 to 8 s, targeted test ~0.2 s |
 | Policy deny on a foreign repo | refused by the proxy, `http_status_code: null` |
 
