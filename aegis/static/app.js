@@ -4,7 +4,7 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var SVGNS = "http://www.w3.org/2000/svg";
+  var NS = "http://www.w3.org/2000/svg";
 
   function esc(v) {
     return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
@@ -12,100 +12,119 @@
     });
   }
   function getJSON(url) {
-    return fetch(url, { cache: "no-store" }).then(function (r) {
-      if (!r.ok) throw new Error(url + " " + r.status);
-      return r.json();
-    });
+    return fetch(url, { cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error(url); return r.json(); });
   }
   function short(repo) { return String(repo || "").split("/").pop(); }
-  function agentShort(a) { return String(a || "").replace(/^aegis-/, ""); }
-  function ruleShort(r) { var p = String(r || "").split("."); return p[p.length - 1] || r; }
+  function agentName(a) { return String(a || "").replace(/^aegis-/, "").replace("sentinel-", "Sentinel "); }
+  function ruleShort(r) { var p = String(r || "").split("."); return (p[p.length - 1] || r).replace(/^js-/, "js · "); }
   function fmtInt(n) { return Math.round(n || 0).toLocaleString("en-US"); }
-  function fmtMs(ms) {
-    if (!ms && ms !== 0) return "–";
-    return ms < 1000 ? Math.round(ms) + " ms" : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + " s";
-  }
+  function fmtK(n) { return n >= 10000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : fmtInt(n); }
+  function fmtMs(ms) { if (!ms && ms !== 0) return "–"; return ms < 1000 ? Math.round(ms) + " ms" : (ms / 1000).toFixed(1) + " s"; }
   function fmtDur(s) {
-    if (s < 90) return Math.round(s) + " s";
-    if (s < 5400) return (s / 60).toFixed(s < 600 ? 1 : 0) + " min";
+    if (s < 90) return Math.round(s) + "s";
+    if (s < 5400) return Math.round(s / 60) + " min";
     return (s / 3600).toFixed(1) + " h";
   }
   function ago(ts) {
     var s = Math.max(0, Date.now() / 1000 - ts);
-    if (s < 60) return Math.round(s) + "s";
-    if (s < 3600) return Math.round(s / 60) + "m";
-    if (s < 86400) return Math.round(s / 3600) + "h";
-    return Math.round(s / 86400) + "d";
+    if (s < 60) return Math.round(s) + "s ago";
+    if (s < 3600) return Math.round(s / 60) + "m ago";
+    if (s < 86400) return Math.round(s / 3600) + "h ago";
+    return Math.round(s / 86400) + "d ago";
   }
-  function el(tag, attrs, parent) {
-    var e = document.createElementNS(SVGNS, tag);
+  function setHTML(node, html) {
+    if (node._h === html) return false;
+    node._h = html; node.innerHTML = html;
+    return true;
+  }
+  function svgEl(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
     for (var k in attrs) e.setAttribute(k, attrs[k]);
     if (parent) parent.appendChild(e);
     return e;
   }
 
-  /* ================= background: living dot field ================= */
-  var bg = $("bg"), ctx = bg.getContext("2d");
-  var W = 0, H = 0, DPR = 1, ripples = [], mouse = { x: -9999, y: -9999 };
-  var GAP = 26;
-  function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 2);
-    W = window.innerWidth; H = window.innerHeight;
-    bg.width = W * DPR; bg.height = H * DPR;
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  /* ================= hero: WebGL smoke ================= */
+  var FRAG = [
+    "precision mediump float;",
+    "uniform vec2 r; uniform float t; uniform vec3 pc; uniform float ps; uniform vec2 pp;",
+    "float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
+    "float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);",
+    " return mix(mix(h(i),h(i+vec2(1.,0.)),f.x),mix(h(i+vec2(0.,1.)),h(i+vec2(1.,1.)),f.x),f.y);}",
+    "float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*n(p);p=p*2.02+vec2(1.7,9.2);a*=.5;}return v;}",
+    "void main(){",
+    " vec2 uv=gl_FragCoord.xy/r; float ar=r.x/r.y; vec2 p=uv*vec2(ar,1.)*1.9; float tt=t*.05;",
+    " vec2 q=vec2(fbm(p+tt),fbm(p+vec2(5.2,1.3)-tt));",
+    " vec2 w=vec2(fbm(p+3.*q+vec2(1.7,9.2)+tt*1.4),fbm(p+3.*q+vec2(8.3,2.8)-tt));",
+    " float f=fbm(p+2.6*w);",
+    " float smoke=smoothstep(.38,.98,f)*(.35+.75*uv.x);",
+    " float line=smoothstep(.028,0.,abs(f-.6))*smoothstep(.25,.85,uv.x)*(.6+.4*sin(t*.6+uv.y*4.));",
+    " vec3 col=vec3(smoke*.62)+vec3(1.,.86,.22)*line;",
+    " float d=distance(uv*vec2(ar,1.),pp*vec2(ar,1.));",
+    " float ring=exp(-pow((d-(1.-ps)*1.6)/.09,2.))*ps;",
+    " col+=pc*(ring*.9+ps*.10);",
+    " col*=1.-.6*length(uv-vec2(.62,.5));",
+    " gl_FragColor=vec4(col,1.);}"
+  ].join("\n");
+  var VERT = "attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}";
+  var heroes = [];
+  function initFlow(canvas) {
+    var gl = canvas.getContext("webgl", { antialias: false, premultipliedAlpha: false });
+    if (!gl) return null;
+    function sh(type, src) { var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; }
+    var prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+    gl.useProgram(prog);
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(prog, "a");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    var u = {};
+    ["r", "t", "pc", "ps", "pp"].forEach(function (k) { u[k] = gl.getUniformLocation(prog, k); });
+    var hero = { canvas: canvas, gl: gl, u: u, pulse: { c: [1, 1, 1], s: 0, p: [0.7, 0.5] } };
+    heroes.push(hero);
+    return hero;
   }
-  window.addEventListener("resize", resize);
-  window.addEventListener("pointermove", function (e) { mouse.x = e.clientX; mouse.y = e.clientY; });
-  resize();
-
-  function ripple(x, y, color) {
-    ripples.push({ x: x, y: y, t0: performance.now(), c: color });
-    if (ripples.length > 6) ripples.shift();
+  function sizeHero(h) {
+    var scale = 0.5 * Math.min(window.devicePixelRatio || 1, 2);
+    var w = Math.max(1, Math.round(h.canvas.clientWidth * scale)), ht = Math.max(1, Math.round(h.canvas.clientHeight * scale));
+    if (h.canvas.width !== w || h.canvas.height !== ht) { h.canvas.width = w; h.canvas.height = ht; h.gl.viewport(0, 0, w, ht); }
   }
-
-  var lastFrame = 0;
-  function frame(now) {
-    if (!REDUCED) requestAnimationFrame(frame);
-    if (now - lastFrame < 42 || document.hidden) return;  // ~24 fps, and nothing while the tab is hidden
-    lastFrame = now;
-    var t = now;
-    ctx.clearRect(0, 0, W, H);
-    ripples = ripples.filter(function (r) { return t - r.t0 < 4200; });
-    var cols = Math.ceil(W / GAP) + 1, rows = Math.ceil(H / GAP) + 1;
-    for (var j = 0; j < rows; j++) {
-      var y = j * GAP + (GAP / 2);
-      var fadeY = 0.35 + 0.65 * (1 - y / H);  // brighter at the top, like a horizon
-      for (var i = 0; i < cols; i++) {
-        var x = i * GAP + (GAP / 2);
-        var v = Math.sin(x * 0.011 + t * 0.00035) * Math.cos(y * 0.014 - t * 0.00028) +
-                Math.sin((x + y) * 0.0045 + t * 0.00022) * 0.6;
-        v = (v + 1.6) / 3.2;
-        var a = (0.035 + 0.13 * v * v) * fadeY;
-        var dm = Math.hypot(x - mouse.x, y - mouse.y);
-        if (dm < 180) a += 0.22 * (1 - dm / 180);
-        var size = 1.2 + v * 0.8;
-        ctx.fillStyle = "rgba(239,229,211," + a.toFixed(3) + ")";
-        ctx.fillRect(x - size / 2, y - size / 2, size, size);
-        for (var k = 0; k < ripples.length; k++) {
-          var r = ripples[k], age = t - r.t0;
-          var radius = age * 0.42, d = Math.hypot(x - r.x, y - r.y);
-          var w = Math.exp(-Math.pow((d - radius) / 46, 2)) * (1 - age / 4200);
-          if (w > 0.04) {
-            ctx.fillStyle = "rgba(" + r.c + "," + (w * 0.85).toFixed(3) + ")";
-            var s2 = size + w * 2.4;
-            ctx.fillRect(x - s2 / 2, y - s2 / 2, s2, s2);
-          }
-        }
-      }
-    }
+  var t0 = performance.now(), lastF = 0;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    if (now - lastF < 15) return;
+    lastF = now;
+    heroes.forEach(function (h) {
+      if (!h.canvas.offsetParent) return;  // hidden page
+      sizeHero(h);
+      var gl = h.gl, u = h.u, p = h.pulse;
+      p.s = Math.max(0, p.s - 0.012);
+      gl.uniform2f(u.r, h.canvas.width, h.canvas.height);
+      gl.uniform1f(u.t, REDUCED ? 8 : (now - t0) / 1000);
+      gl.uniform3f(u.pc, p.c[0], p.c[1], p.c[2]);
+      gl.uniform1f(u.ps, p.s);
+      gl.uniform2f(u.pp, p.p[0], p.p[1]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    });
   }
-  requestAnimationFrame(frame);
-  var RED = "255,106,82", GREEN = "143,214,162", AMBER = "233,180,92";
+  var heroLive = initFlow($("flow"));
+  initFlow($("flow2"));
+  requestAnimationFrame(loop);
+  function pulse(rgb) {
+    if (!heroLive) return;
+    heroLive.pulse = { c: rgb, s: 1, p: [0.72, 0.42] };
+  }
+  var RED = [1, 0.29, 0.24], LIME = [1, 0.86, 0.22];
 
   /* ================= routing ================= */
   function route() {
-    var page = (location.hash || "#live").slice(1);
-    if (page !== "how") page = "live";
+    var page = (location.hash || "#live").slice(1) === "how" ? "how" : "live";
     ["live", "how"].forEach(function (p) { $("page-" + p).hidden = p !== page; });
     document.querySelectorAll(".tab").forEach(function (a) { a.classList.toggle("on", a.dataset.page === page); });
     window.scrollTo({ top: 0 });
@@ -113,423 +132,139 @@
   window.addEventListener("hashchange", route);
   route();
 
-  /* ================= clock + status ================= */
-  function tickClock() { $("clock").textContent = new Date().toLocaleTimeString("en-US", { hour12: false }); }
-  setInterval(tickClock, 1000); tickClock();
-  function setStatus(ok, text) {
-    $("status").className = "status " + (ok ? "ok" : "bad");
-    $("statusText").textContent = text;
-  }
-
-  /* ================= KPIs (count-up) ================= */
-  var kpiVals = {};
+  /* ================= KPIs ================= */
+  var shown = {};
   function countTo(id, target, fmt) {
-    var node = $(id), from = kpiVals[id] || 0;
-    kpiVals[id] = target;
+    var node = $(id), from = shown[id] || 0;
+    shown[id] = target;
     if (REDUCED || from === target) { node.textContent = fmt(target); return; }
-    var t0 = performance.now(), dur = 1100;
+    var s = performance.now();
     (function step(now) {
-      var p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      var k = Math.min(1, (now - s) / 1000), e = 1 - Math.pow(1 - k, 3);
       node.textContent = fmt(from + (target - from) * e);
-      if (p < 1) requestAnimationFrame(step);
-    })(t0);
+      if (k < 1) requestAnimationFrame(step);
+    })(s);
   }
+  function setStatus(ok, text) { $("status").className = "status " + (ok ? "ok" : "bad"); $("statusText").textContent = text; }
   function loadStats() {
     return getJSON("/api/stats").then(function (s) {
       countTo("kAgents", s.agents, fmtInt);
       countTo("kRepos", s.repos, fmtInt);
       countTo("kFindings", s.findings, fmtInt);
-      $("howFindings").textContent = fmtInt(s.findings);
-      setStatus(true, s.ch ? "fleet online" : "online · no memory");
-    }).catch(function () { setStatus(false, "offline"); });
+      $("howFindings").textContent = fmtK(s.findings);
+      setStatus(true, s.ch ? "Fleet online" : "Online");
+    }).catch(function () { setStatus(false, "Offline"); });
   }
   function loadLatency() {
     return getJSON("/api/latency").then(function (d) {
       var rows = (d.agents || []).filter(function (a) { return /^aegis-/.test(a.agent); });
-      if (!rows.length) rows = d.agents || [];
-      var scans = rows.reduce(function (s, a) { return s + (a.scans || 0); }, 0);
-      var p50 = scans ? rows.reduce(function (s, a) { return s + a.p50_ms * (a.scans || 0); }, 0) / scans : 0;
+      var n = rows.reduce(function (s, a) { return s + a.scans; }, 0);
+      var p50 = n ? rows.reduce(function (s, a) { return s + a.p50_ms * a.scans; }, 0) / n : 0;
       $("kScan").textContent = p50 ? fmtMs(p50) : "–";
-      var max = Math.max.apply(null, rows.map(function (a) { return a.p95_ms || 0; }).concat([1]));
-      $("latency").innerHTML = rows.length ? rows.map(function (a) {
-        return '<li><div class="n">' + esc(agentShort(a.agent)) + "<small>" + fmtInt(a.scans) + " scans</small>" +
-          '<div class="meter"><i style="width:' + Math.round(100 * (a.p95_ms || 0) / max) + '%"></i></div></div>' +
-          '<div class="v">' + fmtMs(a.p50_ms) + " · " + fmtMs(a.p95_ms) + "</div></li>";
-      }).join("") : '<li class="empty">No scans yet</li>';
+      var svg = $("latency"), sig = JSON.stringify(rows);
+      if (svg._sig === sig) return;
+      svg._sig = sig; svg.innerHTML = "";
+      if (!rows.length) { svgEl("text", { x: 0, y: 20 }, svg).textContent = "No agent scans yet"; return; }
+      var max = Math.max.apply(null, rows.map(function (a) { return a.p95_ms; })) || 1;
+      var bh = Math.min(22, 110 / rows.length / 2.4);
+      rows.forEach(function (a, i) {
+        var y = 8 + i * (bh * 2 + 26);
+        svgEl("text", { x: 0, y: y + 8 }, svg).textContent = agentName(a.agent) + " · " + a.scans + " scans";
+        var w95 = 220 * a.p95_ms / max, w50 = 220 * a.p50_ms / max;
+        svgEl("rect", { x: 0, y: y + 16, width: w95, height: bh, rx: bh / 2, fill: "#ffe03d" }, svg);
+        svgEl("rect", { x: 0, y: y + 16, width: w50, height: bh, rx: bh / 2, fill: "#0a0a0a" }, svg);
+        svgEl("text", { x: w95 + 8, y: y + 16 + bh * 0.72, "class": "v" }, svg).textContent = fmtMs(a.p50_ms) + " / " + fmtMs(a.p95_ms);
+      });
     }).catch(function () {});
   }
   function loadMttr() {
     return getJSON("/api/mttr").then(function (d) {
-      var rows = d.repos || [], n = 0, sum = 0;
-      rows.forEach(function (r) { n += r.closed || 0; sum += (r.mttr_h || 0) * (r.closed || 0); });
+      var n = 0, sum = 0;
+      (d.repos || []).forEach(function (r) { n += r.closed; sum += r.mttr_h * r.closed; });
       $("kMttr").textContent = n ? fmtDur(sum / n * 3600) : "–";
     }).catch(function () {});
   }
 
   /* ================= fleet map ================= */
-  var map = $("map"), mapNodes = { agents: {}, repos: {}, edges: {} }, repoAgent = {};
+  var map = $("map"), nodes = { agents: {}, repos: {}, edges: {} }, repoAgent = {}, fleetSig = "";
   function buildMap(agents) {
     map.innerHTML = "";
-    mapNodes = { agents: {}, repos: {}, edges: {} };
-    var gEdges = el("g", {}, map), gNodes = el("g", {}, map);
-    var n = agents.length || 1, H0 = 380, band = H0 / n;
+    nodes = { agents: {}, repos: {}, edges: {} };
+    var ge = svgEl("g", {}, map), gn = svgEl("g", {}, map);
+    var band = 400 / Math.max(1, agents.length);
     agents.forEach(function (a, ai) {
-      var ay = band * ai + band / 2, ax = 108;
-      var repos = a.repos || [];
+      var ay = band * ai + band / 2, ax = 96, repos = a.repos || [];
       repos.forEach(function (r, ri) {
-        var ry = ay + (ri - (repos.length - 1) / 2) * Math.min(42, (band - 10) / Math.max(1, repos.length));
-        var path = el("path", { "class": "edge", d: "M" + (ax + 34) + " " + ay + " C " + (ax + 140) + " " + ay + ", " + (330 - 90) + " " + ry + ", 330 " + ry }, gEdges);
-        mapNodes.edges[r.repo] = path;
-        var g = el("g", { "class": "repo", transform: "translate(330 " + (ry - 16) + ")" }, gNodes);
-        el("rect", { width: 290, height: 32, rx: 9 }, g);
-        var tn = el("text", { "class": "rn", x: 14, y: 20.5 }, g); tn.textContent = short(r.repo);
-        var to = el("text", { "class": "ro", x: 278, y: 20, "text-anchor": "end" }, g);
-        g._counts = to;
-        mapNodes.repos[r.repo] = g;
+        var ry = ay + (ri - (repos.length - 1) / 2) * 40;
+        nodes.edges[r.repo] = svgEl("path", { "class": "edge", d: "M" + (ax + 38) + " " + ay + " C 230 " + ay + ", 240 " + ry + ", 320 " + ry }, ge);
+        var g = svgEl("g", { "class": "repo", transform: "translate(320 " + (ry - 16) + ")" }, gn);
+        svgEl("rect", { width: 300, height: 32, rx: 16 }, g);
+        svgEl("text", { x: 16, y: 21 }, g).textContent = short(r.repo);
+        g._cnt = svgEl("text", { "class": "cnt", x: 286, y: 20.5, "text-anchor": "end" }, g);
+        nodes.repos[r.repo] = g;
         repoAgent[r.repo] = a.agent;
       });
-      var ga = el("g", { "class": "agent", transform: "translate(" + ax + " " + ay + ")" }, gNodes);
-      el("circle", { "class": "halo", r: 30 }, ga);
-      el("circle", { "class": "core", r: 34 }, ga);
-      var t1 = el("text", { "class": "an", y: 2 }, ga); t1.textContent = agentShort(a.agent).replace("sentinel-", "Sentinel ");
-      var t2 = el("text", { "class": "as", y: 18 }, ga); t2.textContent = "idle";
-      ga._state = t2;
-      mapNodes.agents[a.agent] = ga;
+      var ga = svgEl("g", { "class": "agent", transform: "translate(" + ax + " " + ay + ")" }, gn);
+      svgEl("circle", { "class": "halo", r: 36 }, ga);
+      svgEl("circle", { "class": "core", r: 38 }, ga);
+      svgEl("text", { y: 2 }, ga).textContent = agentName(a.agent).replace("Sentinel ", "S-");
+      ga._s = svgEl("text", { "class": "s", y: 18 }, ga);
+      ga._s.textContent = "idle";
+      nodes.agents[a.agent] = ga;
     });
   }
-  var fleetSig = "";
   function loadFleet() {
     return getJSON("/api/fleet").then(function (d) {
-      var agents = d.agents || [];
-      fleetAgents = {}; agents.forEach(function (a) { fleetAgents[a.agent] = (a.repos || []).map(function (r) { return r.repo; }); });
-      var sig = agents.map(function (a) { return a.agent + ":" + (a.repos || []).map(function (r) { return r.repo; }).join(","); }).join("|");
+      var agents = d.agents || [], n = 0;
+      fleetAgents = {};
+      agents.forEach(function (a) { fleetAgents[a.agent] = (a.repos || []).map(function (r) { return r.repo; }); });
+      var sig = agents.map(function (a) { return a.agent + (a.repos || []).map(function (r) { return r.repo; }).join(); }).join("|");
       if (sig !== fleetSig) { fleetSig = sig; buildMap(agents); }
-      var nrepos = 0;
       agents.forEach(function (a) {
         (a.repos || []).forEach(function (r) {
-          nrepos++;
-          var g = mapNodes.repos[r.repo];
-          if (g) g._counts.innerHTML = '<tspan class="o">' + fmtInt(r.open) + ' open</tspan>  ·  <tspan class="f">' + fmtInt(r.resolved) + " fixed</tspan>";
+          n++;
+          var g = nodes.repos[r.repo];
+          if (g) g._cnt.innerHTML = '<tspan class="o">' + fmtInt(r.open) + ' open</tspan>   <tspan class="f">' + fmtInt(r.resolved) + " fixed</tspan>";
         });
       });
-      $("fleetHint").textContent = agents.length + " agents · " + nrepos + " repos";
+      $("fleetHint").textContent = agents.length + " agents · " + n + " repos";
     }).catch(function () {});
   }
+  function isHot(e) { return (e.kind === "scan" && e.verdict === "unsafe") || e.kind === "issue_opened" || e.kind === "denied"; }
+  function isGood(e) { return (e.kind === "scan" && e.verdict === "safe") || e.kind === "issue_closed" || e.kind === "verified"; }
   function paintMap(events) {
-    var now = Date.now() / 1000, repoState = {}, agentLast = {};
-    events.slice().reverse().forEach(function (e) {   // oldest -> newest, last write wins
+    var now = Date.now() / 1000, st = {}, last = {};
+    events.slice().reverse().forEach(function (e) {
       if (now - e.ts > 300) return;
-      var hot = (e.kind === "scan" && e.verdict === "unsafe") || e.kind === "issue_opened" || e.kind === "pr_opened" || e.kind === "denied";
-      var cool = (e.kind === "scan" && e.verdict === "safe") || e.kind === "issue_closed" || e.kind === "verified";
-      if (hot) repoState[e.repo] = "hot"; else if (cool) repoState[e.repo] = "cool";
+      if (isHot(e) || e.kind === "pr_opened") st[e.repo] = "hot"; else if (isGood(e)) st[e.repo] = "cool";
       var ag = e.agent || repoAgent[e.repo];
-      if (ag) agentLast[ag] = Math.max(agentLast[ag] || 0, e.ts);
+      if (ag) last[ag] = Math.max(last[ag] || 0, e.ts);
     });
-    Object.keys(mapNodes.repos).forEach(function (repo) {
-      var st = repoState[repo] || "";
-      mapNodes.repos[repo].setAttribute("class", "repo " + st);
-      mapNodes.edges[repo].setAttribute("class", "edge " + st);
+    Object.keys(nodes.repos).forEach(function (r) {
+      nodes.repos[r].setAttribute("class", "repo " + (st[r] || ""));
+      nodes.edges[r].setAttribute("class", "edge " + (st[r] || ""));
     });
-    Object.keys(mapNodes.agents).forEach(function (a) {
-      var g = mapNodes.agents[a], last = agentLast[a] || 0, age = now - last;
-      var awake = age < 45, calm = !awake && age < 300;
-      g.setAttribute("class", "agent " + (awake ? "awake" : calm ? "calm" : ""));
-      g._state.textContent = awake ? "working" : calm ? "on watch · " + ago(last) : "idle";
+    var anyAwake = false;
+    Object.keys(nodes.agents).forEach(function (a) {
+      var age = now - (last[a] || 0), awake = age < 45;
+      anyAwake = anyAwake || awake;
+      nodes.agents[a].setAttribute("class", "agent" + (awake ? " awake" : ""));
+      nodes.agents[a]._s.textContent = awake ? "working" : last[a] ? ago(last[a]) : "idle";
     });
-  }
-  function nodeCenter(repo) {
-    var g = mapNodes.repos[repo];
-    if (!g || $("page-live").hidden) return null;
-    var r = g.getBoundingClientRect();
-    return { x: r.left + r.width * 0.15, y: r.top + r.height / 2 };
+    $("heroState").textContent = anyAwake ? "Agent working now" : "Fleet on watch";
   }
 
-  /* ================= incident ================= */
-  var STEP_LABEL = {
-    scan: "Scanned", status_set: "Commit status set", issue_opened: "Issue opened", pr_opened: "Fix PR opened",
-    pr_reviewed: "PR reviewed", verified: "Fix verified", issue_closed: "Issue closed", dismissed: "Dismissed as false positive",
-    denied: "Blocked by policy"
-  };
-  function paintIncident(events) {
-    var scans = events.filter(function (e) { return e.kind === "scan" && /^aegis-/.test(e.agent || ""); });
-    if (!scans.length) return;
-    var anchor = scans.find(function (e) { return e.verdict === "unsafe" && Date.now() / 1000 - e.ts < 1800; }) || scans[0];
-    var repo = anchor.repo;
-    var evs = events.filter(function (e) { return e.repo === repo && e.ts >= anchor.ts - 1; })
-      .sort(function (a, b) { return a.ts - b.ts; });
-    var groups = [], idx = {};
-    evs.forEach(function (e) {
-      var key = e.kind === "scan" ? "scan:" + e.ts : e.kind;
-      if (e.kind === "scan" && groups.length && e !== evs[0]) key = "rescan";
-      if (idx[key] == null) { idx[key] = groups.length; groups.push({ kind: e.kind, first: e, last: e, n: 0, refs: [] }); }
-      var g = groups[idx[key]]; g.last = e; g.n++; if (e.ref) g.refs.push(e.ref);
-    });
-    var verdict = anchor.verdict || "";
-    $("incTitle").innerHTML = esc(short(repo)) + ' <span class="v-' + esc(verdict) + '">' + (verdict === "unsafe" ? "unsafe" : "safe") + "</span>";
-    $("incHint").textContent = agentShort(anchor.agent) + " · " + ago(anchor.ts) + " ago";
-    var t0 = anchor.ts;
-    var html = groups.map(function (g, i) {
-      var e = g.first, label = STEP_LABEL[g.kind] || g.kind, meta = "", cls = "done";
-      if (g.kind === "scan") {
-        label = i === 0 ? "Push scanned" : "Re-scanned after fix";
-        meta = (e.n_findings || 0) + " finding" + (e.n_findings === 1 ? "" : "s") + (e.total_ms ? " · " + fmtMs(e.total_ms) : "");
-        cls += e.verdict === "unsafe" ? " bad" : " good";
-      } else {
-        if (g.n > 1) label += " ×" + g.n;
-        var refs = g.refs.filter(function (r) { return /^\d+$/.test(r); }).slice(0, 4).map(function (r) { return "#" + r; }).join(" ");
-        meta = refs;
-        if (g.kind === "issue_closed" || g.kind === "verified") cls += " good";
-        if (g.kind === "issue_opened" || g.kind === "denied") cls += " bad";
-      }
-      if (i === groups.length - 1) cls += " last";
-      return '<li class="' + cls + '"><span class="pt"></span><span>' + esc(label) +
-        (meta ? ' <span class="pm">' + esc(meta) + "</span>" : "") + '</span><span class="pm">+' + fmtDur(g.last.ts - t0) + "</span></li>";
-    }).join("");
-    var closed = groups.some(function (g) { return g.kind === "issue_closed" || g.kind === "verified"; });
-    if (!closed && verdict === "unsafe") html += '<li><span class="pt"></span><span>Waiting for the fix…</span><span class="pm"></span></li>';
-    $("pipeline").innerHTML = html;
-    var span = evs.length ? evs[evs.length - 1].ts - t0 : 0;
-    $("incTotal").innerHTML = closed ? "Detect → fix → verify in <b>" + fmtDur(span) + "</b>, nobody touched anything" :
-      verdict === "unsafe" ? "Agent working · <b>" + fmtDur(Date.now() / 1000 - t0) + "</b> since push" : "Clean push · <b>" + fmtMs(anchor.total_ms) + "</b> scan";
-  }
-
-  /* ================= feed + live reactions ================= */
-  var lastTs = null;
-  function feedKind(e) {
-    if (e.kind === "scan") return { cls: "k-" + (e.verdict || "scan"), label: e.verdict || "scan" };
-    return { cls: "k-" + e.kind, label: String(e.kind).replace(/_/g, " ") };
-  }
-  function feedDetail(e) {
-    var bits = [agentShort(e.agent), short(e.repo)];
-    if (e.kind === "scan") bits.push((e.n_findings || 0) + " findings", fmtMs(e.total_ms));
-    else if (e.ref) bits.push(/^\d+$/.test(e.ref) ? "#" + e.ref : String(e.ref).slice(0, 10));
-    return bits.filter(Boolean).join(" · ");
-  }
-  var toastTimer = null;
-  function toast(kind, k, t) {
-    var n = $("toast");
-    n.className = "toast on " + kind;
-    $("toastK").textContent = k; $("toastT").textContent = t;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { n.className = "toast " + kind; }, 3600);
-  }
-  function react(fresh) {
-    var top = null;
-    fresh.forEach(function (e) {
-      var c = nodeCenter(e.repo);
-      var color = (e.kind === "scan" && e.verdict === "safe") || e.kind === "issue_closed" || e.kind === "verified" ? GREEN :
-                  e.kind === "scan" || e.kind === "issue_opened" || e.kind === "denied" ? RED : AMBER;
-      if (c) ripple(c.x, c.y, color);
-      var rank = { scan: 3, pr_opened: 2, verified: 2, denied: 4 }[e.kind] || 0;
-      if (rank && (!top || rank > top.rank)) top = { e: e, rank: rank };
-    });
-    if (!top) return;
-    var e = top.e, who = agentShort(e.agent).replace("sentinel-", "Sentinel ") + " · " + short(e.repo);
-    if (e.kind === "scan") toast(e.verdict === "unsafe" ? "bad" : "good", e.verdict === "unsafe" ? "Unsafe push · " + (e.n_findings || 0) + " findings" : "Clean push", who + " woke up");
-    else if (e.kind === "pr_opened") toast("", "Fix proposed", who + " opened PR #" + e.ref);
-    else if (e.kind === "verified") toast("good", "Fix verified", who);
-    else if (e.kind === "denied") toast("bad", "Blocked by policy", who);
-  }
-  function loadEvents() {
-    return getJSON("/api/events?n=80").then(function (d) {
-      var events = (d.events || []).filter(function (e) { return e.repo && !/^local:|selftest/.test(e.repo); });
-      var fresh = lastTs == null ? [] : events.filter(function (e) { return e.ts > lastTs; });
-      if (events.length) lastTs = Math.max(lastTs || 0, events[0].ts);
-      $("feed").innerHTML = events.slice(0, 40).map(function (e) {
-        var k = feedKind(e), isNew = fresh.indexOf(e) >= 0;
-        return '<li class="' + (isNew ? "new" : "") + '"><span class="t">' + ago(e.ts) + ' ago</span><span class="k ' + esc(k.cls) + '">' +
-          esc(k.label) + '</span><span class="d">' + esc(feedDetail(e)) + "</span></li>";
-      }).join("") || '<li><span class="d">Waiting for the first push…</span></li>';
-      paintMap(events);
-      paintIncident(events);
-      try { paintStepper(events); } catch (err) { console.warn("stepper", err); }
-      if (fresh.length) { react(fresh); loadFleet(); }
-    }).catch(function () {});
-  }
-
-  /* ================= alerts ================= */
-  function loadAlerts() {
-    return getJSON("/api/alerts?hours=48").then(function (d) {
-      var a = d.alerts || [], box = $("alerts");
-      box.hidden = !a.length;
-      box.innerHTML = a.slice(0, 3).map(function (x) {
-        if (x.type === "injection") {
-          return '<div class="alert"><div class="alert-k">Attack caught</div><div class="alert-t"><b>' + esc(short(x.repo)) +
-            "</b> contains a comment telling the agent to approve the code. Ignored and flagged at <code>" +
-            esc(x.path) + ":" + esc(x.line) + "</code></div></div>";
-        }
-        return '<div class="alert"><div class="alert-k">Blocked by policy</div><div class="alert-t"><b>' + esc(agentShort(x.agent)) +
-          "</b> tried to act on <b>" + esc(short(x.repo)) + "</b>, outside its fence. Denied by Guild.</div></div>";
-      }).join("");
-    }).catch(function () {});
-  }
-
-  /* ================= insights ================= */
-  function loadInsights() {
-    return getJSON("/api/insights?hours=24").then(function (d) {
-      var noisy = d.noisy_rules || [], reo = d.reopened || [];
-      $("noisy").innerHTML = noisy.length ? noisy.slice(0, 5).map(function (r) {
-        var rate = r.dismiss_rate || 0;
-        return '<li><div class="n">' + esc(ruleShort(r.rule_id)) + "<small>" + fmtInt(r.dismissed) + " of " + fmtInt(r.filed) + " dismissed</small>" +
-          '<div class="meter"><i style="width:' + Math.round(rate * 100) + '%"></i></div></div><div class="v">' + Math.round(rate * 100) + "%</div></li>";
-      }).join("") : '<li class="empty">No triage decisions yet</li>';
-      $("reopened").innerHTML = reo.length ? reo.slice(0, 5).map(function (r) {
-        return '<li><div class="n">' + esc(ruleShort(r.rule_id)) + "<small>" + esc(short(r.repo)) + "</small></div><div class=\"v\">×" + fmtInt(r.times) + "</div></li>";
-      }).join("") : '<li class="empty">Nothing reopened</li>';
-    }).catch(function () {});
-  }
-
-  /* ================= posture timeline ================= */
-  var tlRows = [];
-  function drawTimeline() {
-    var repo = $("repoSel").value, byM = {}, months = [];
-    tlRows.forEach(function (r) {
-      if (repo && r.repo !== repo) return;
-      var m = String(r.week).slice(0, 7);
-      if (!byM[m]) byM[m] = { ERROR: 0, WARNING: 0, INFO: 0 };
-      byM[m][r.severity in byM[m] ? r.severity : "INFO"] += r.n;
-    });
-    var keys = Object.keys(byM).sort();
-    if (!keys.length) { $("timeline").innerHTML = '<div class="empty">No history yet</div>'; return; }
-    var y0 = +keys[0].slice(0, 4), m0 = +keys[0].slice(5, 7) - 1, last = keys[keys.length - 1];
-    var y1 = +last.slice(0, 4), m1 = +last.slice(5, 7) - 1;
-    for (var y = y0, m = m0; y < y1 || (y === y1 && m <= m1); m++) {
-      if (m > 11) { m = 0; y++; }
-      if (y > y1 || (y === y1 && m > m1)) break;
-      months.push(y + "-" + String(m + 1).padStart(2, "0"));
-    }
-    var VW = 1200, VH = 240, padL = 34, padB = 22, iw = VW - padL - 6, ih = VH - padB - 10;
-    var max = 1;
-    months.forEach(function (k) { var v = byM[k]; if (v) max = Math.max(max, v.ERROR + v.WARNING + v.INFO); });
-    var bw = iw / months.length;
-    var svg = '<svg viewBox="0 0 ' + VW + " " + VH + '" preserveAspectRatio="none">';
-    [0.25, 0.5, 0.75, 1].forEach(function (f) {
-      var gy = 10 + ih - ih * f;
-      svg += '<line class="grid" x1="' + padL + '" x2="' + VW + '" y1="' + gy + '" y2="' + gy + '"/>' +
-        '<text class="axis" x="0" y="' + (gy + 3) + '">' + fmtInt(max * f) + "</text>";
-    });
-    months.forEach(function (k, i) {
-      var v = byM[k], x = padL + i * bw, yb = 10 + ih;
-      if (v) {
-        ["INFO", "WARNING", "ERROR"].forEach(function (s) {
-          if (!v[s]) return;
-          var h = ih * v[s] / max;
-          yb -= h;
-          svg += '<rect class="bar sev-' + s + '" data-k="' + k + '" x="' + (x + bw * 0.12).toFixed(2) + '" y="' + yb.toFixed(2) +
-            '" width="' + Math.max(0.8, bw * 0.76).toFixed(2) + '" height="' + h.toFixed(2) + '" fill="' +
-            { ERROR: "#ff6a52", WARNING: "#e9b45c", INFO: "#8db7e8" }[s] + '" opacity=".85"/>';
-        });
-      }
-      if (k.slice(5) === "01") {
-        var yr = +k.slice(0, 4);
-        var every = months.length > 180 ? 3 : months.length > 60 ? 2 : 1;
-        if (yr % every === 0) svg += '<text class="axis" x="' + x.toFixed(1) + '" y="' + (VH - 4) + '">' + yr + "</text>";
-      }
-    });
-    svg += "</svg>";
-    $("timeline").innerHTML = svg;
-    $("timeline").onmousemove = function (ev) {
-      var t = ev.target, tip = $("tip");
-      if (!t.dataset || !t.dataset.k) { tip.hidden = true; return; }
-      var v = byM[t.dataset.k];
-      tip.hidden = false;
-      tip.style.left = ev.clientX + 14 + "px"; tip.style.top = ev.clientY - 10 + "px";
-      tip.textContent = t.dataset.k + " · " + v.ERROR + " error · " + v.WARNING + " warning · " + v.INFO + " info";
-    };
-    $("timeline").onmouseleave = function () { $("tip").hidden = true; };
-    var total = tlRows.reduce(function (s, r) { return s + (!repo || r.repo === repo ? r.n : 0); }, 0);
-    $("tlNote").textContent = fmtInt(total) + " finding-months · " + keys[0].slice(0, 4) + "–" + last.slice(0, 4) + " · by commit date";
-  }
-  function loadTimeline() {
-    return getJSON("/api/timeline?weeks=1100&bucket=month").then(function (d) {
-      tlRows = d.rows || [];
-      var sel = $("repoSel"), cur = sel.value;
-      var repos = Array.from(new Set(tlRows.map(function (r) { return r.repo; }))).sort();
-      sel.innerHTML = '<option value="">All repos</option>' + repos.map(function (r) {
-        return '<option value="' + esc(r) + '"' + (r === cur ? " selected" : "") + ">" + esc(r) + "</option>";
-      }).join("");
-      drawTimeline();
-    }).catch(function () { $("timeline").innerHTML = '<div class="empty">Timeline unavailable</div>'; });
-  }
-  $("repoSel").addEventListener("change", drawTimeline);
-  window.addEventListener("resize", function () { if (tlRows.length) drawTimeline(); });
-
-
-  /* ================= control room: Guild agents, pipeline stepper, handoffs, projector (D2) ================= */
-  var ROLE_AGENTS = { "aegis-triage": "triage", "aegis-remediator": "remediator", "aegis-verifier": "verifier", "aegis-warden": "warden",
-                      "aegis-rulesmith": "rulesmith", "aegis-reporter": "reporter", "aegis-onboarder": "onboarder" };
-  var ROLE_DESC = { triage: "validates findings", remediator: "writes the fix", verifier: "proves the fix", warden: "fleet cron · insights",
-                    rulesmith: "learns new Semgrep rules", reporter: "writes the report", onboarder: "adds repos to the fleet" };
-  var fleetAgents = {};        // agent -> [repos] from /api/fleet
-  var knownSessions = null;    // session ids we have already seen (for the WAKE flash)
-  var guildAgents = {};        // agent -> card data from /api/guild
-
+  /* ================= latest push: 8-step pipeline (port of Andrii's stepper) ================= */
   function ghUrl(repo, kind, ref) {
-    if (!repo || !ref) return "";
+    if (!repo || !ref || /^local:/.test(repo)) return "";
     var base = "https://github.com/" + repo;
-    if (kind === "issue") return base + "/issues/" + ref;
-    if (kind === "pr") return base + "/pull/" + ref;
-    if (kind === "commit") return base + "/commit/" + ref;
-    return base;
+    return kind === "issue" ? base + "/issues/" + ref : kind === "pr" ? base + "/pull/" + ref : kind === "commit" ? base + "/commit/" + ref : base;
   }
   function link(url, text) { return url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(text) + "</a>" : esc(text); }
-
-  function wakeFlash(sub) {
-    if (REDUCED) return;
-    var w = $("wake");
-    $("wakeS").textContent = sub || "";
-    w.classList.remove("on"); void w.offsetWidth; w.classList.add("on");
-    setTimeout(function () { w.classList.remove("on"); }, 2900);
-  }
-
-  function paintCards(d) {
-    var byAgent = {};
-    (d.agents || []).forEach(function (a) { byAgent[a.agent] = a; });
-    guildAgents = byAgent;
-    var names = Object.keys(fleetAgents).concat(Object.keys(ROLE_AGENTS));
-    Object.keys(byAgent).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
-    var html = "", lastGroup = "";
-    names.forEach(function (name) {
-      var group = fleetAgents[name] ? "sentinels · one per 3 repos" : "role agents";
-      if (group !== lastGroup) { html += '<div class="card-role">' + esc(group) + "</div>"; lastGroup = group; }
-      var a = byAgent[name], cur = a && (a.current || a.latest), st = a ? a.state : "never";
-      var cls = st === "working" ? "working" : (cur && cur.status === "failed") ? "failed" : a ? "done" : "never";
-      var sub = fleetAgents[name] ? fleetAgents[name].map(short).join(", ") : (ROLE_DESC[ROLE_AGENTS[name]] || ROLE_AGENTS[name] || "");
-      var status = st === "working" ? "working" : a ? (cur && cur.status === "failed" ? "failed · " + ago(cur.created_at) : "idle · " + ago(cur.created_at)) : "idle";
-      var tool = "";
-      if (cur) {
-        var t = cur.last_tool_call;
-        tool = (st === "working" ? "" : "last: ") + (t ? '<span class="tool">' + esc(t.name) + "</span>" + (t.status && t.status !== "DONE" ? " · " + esc(t.status.toLowerCase()) : "") :
-               cur.note ? '<span class="note">' + esc(cur.note) + "</span>" : '<span class="note">' + esc(cur.event + (cur.action ? " " + cur.action : "")) + "</span>") +
-               (cur.repo ? ' <span class="note">· ' + esc(short(cur.repo)) + "</span>" : "") +
-               link(cur.session_url, "session ↗");
-      }
-      html += '<div class="card ' + cls + '" data-agent="' + esc(name) + '"><span class="led"></span><div class="cn">' + esc(agentShort(name)) + (sub ? "<small>" + esc(sub) + "</small>" : "") +
-        '</div><div class="cs">' + esc(status) + "</div>" + (tool ? '<div class="ct">' + tool + "</div>" : "") + "</div>";
-    });
-    $("cards").innerHTML = html || '<div class="empty">No agents</div>';
-  }
-  function loadGuild() {
-    return getJSON("/api/guild").then(function (d) {
-      if (!d.ok) { $("guildHint").textContent = "guild: offline" + (d.error ? " · " + d.error.slice(0, 40) : ""); $("guildHint").style.color = "var(--red)"; if (!Object.keys(guildAgents).length) paintCards({ agents: [] }); return; }
-      var sessions = d.sessions || [], working = sessions.filter(function (s) { return s.status === "working"; }).length;
-      $("guildHint").style.color = "";
-      $("guildHint").textContent = "guild: live · " + working + " awake · " + sessions.length + " sessions";
-      paintCards(d);
-      if (knownSessions) {
-        var fresh = sessions.filter(function (s) { return !knownSessions[s.id] && Date.now() / 1000 - s.created_at < 120; });
-        if (fresh.length) {
-          var f = fresh[0];
-          wakeFlash(agentShort(f.agent) + (f.repo ? " · " + short(f.repo) : "") + (f.event ? " · " + f.event : ""));
-          toast("", "Agent woke up", agentShort(f.agent) + (f.repo ? " on " + short(f.repo) : ""));
-        }
-      }
-      knownSessions = knownSessions || {};
-      sessions.forEach(function (s) { knownSessions[s.id] = 1; });
-    }).catch(function () { $("guildHint").textContent = "guild: offline"; $("guildHint").style.color = "var(--red)"; });
-  }
-
-  function paintStepper(events) {
+  var LABEL = { status_set: "Status set", issue_opened: "Issue opened", pr_opened: "Fix PR opened", pr_reviewed: "PR reviewed",
+    verified: "Fix verified", verify_failed: "Fix rejected", issue_closed: "Issue closed", dismissed: "Dismissed", denied: "Blocked by policy",
+    fix_proposed: "Fix proposed", fix_failed: "Fix failed", handoff_ok: "Handoff ok", handoff_rejected: "Handoff rejected" };
+  function paintIncident(events) {
     var scans = events.filter(function (e) { return e.kind === "scan" && e.repo; });
     if (!scans.length) return;
     var now = Date.now() / 1000;
@@ -542,75 +277,377 @@
     function last(kind, pred) { var r = null; evs.forEach(function (e) { if (e.kind === kind && (!pred || pred(e))) r = e; }); return r; }
     var sha = anchor.sha || (wake && wake.sha) || "";
     var issue = first("issue_opened"), issueClosed = last("issue_closed"), dismissed = first("dismissed");
-    var fix = last("fix_proposed"), fixFail = last("fix_failed");
-    var ver = last("verified"), verFail = last("verify_failed");
-    var pr = first("pr_opened", function (e) { return e.repo === repo; });
-    var rescan = evs.filter(function (e) { return e.kind === "scan" && e !== anchor; }).pop();
+    var fix = last("fix_proposed"), fixFail = last("fix_failed"), ver = last("verified"), verFail = last("verify_failed");
+    var pr = first("pr_opened"), rescan = evs.filter(function (e) { return e.kind === "scan" && e !== anchor; }).pop();
     var green = last("status_set", function (e) { return e.state === "success" && e.ts > anchor.ts; });
-    var unsafe = anchor.verdict === "unsafe";
-    var steps = [];
-    steps.push({ label: "Push", ev: wake || anchor, cls: "done", meta: (wake && wake.trigger ? wake.trigger + " · " : "") + (sha ? "" : ""), link: sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "" });
-    steps.push({ label: "Semgrep scan", ev: anchor, cls: "done " + (unsafe ? "bad" : "good"),
-      meta: (anchor.n_findings || 0) + " finding" + (anchor.n_findings === 1 ? "" : "s") + " · " + fmtMs(anchor.ms || anchor.total_ms) });
+    var unsafe = anchor.verdict === "unsafe", steps = [];
+    steps.push({ label: "Push", ev: wake || anchor, cls: "done", link: sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "" });
+    steps.push({ label: "Semgrep scan", ev: anchor, cls: "done " + (unsafe ? "bad" : ""), meta: (anchor.n_findings || 0) + " finding" + (anchor.n_findings === 1 ? "" : "s") + " · " + fmtMs(anchor.ms || anchor.total_ms) });
     if (!unsafe) {
-      steps.push({ label: "Validated", cls: "done good", ev: anchor, meta: "clean · nothing to triage" });
-      steps.push({ label: "Fix", cls: "", meta: "not needed" }); steps.push({ label: "Re-check", cls: "", meta: "–" });
-      steps.push({ label: "Issue", cls: "", meta: "none" }); steps.push({ label: "Decision", cls: green ? "done good" : "", ev: green, meta: green ? "commit green" : "–", link: green ? link(ghUrl(repo, "commit", green.sha), "status ↗") : "" });
-      steps.push({ label: "Merged & green", cls: green ? "done good" : "", ev: green, meta: green ? "✓" : "–" });
+      steps.push({ label: "Validated", cls: "done", ev: anchor, meta: "clean" });
+      steps.push({ label: "Commit green", cls: green ? "done" : "", ev: green, meta: green ? "✓" : "–" });
     } else {
       var validated = issue || fix || dismissed;
-      steps.push({ label: "Validated", cls: dismissed && !issue ? "done" : validated ? "done" : "active", ev: validated, meta: dismissed && !issue ? "triage: false positive" : validated ? "triage confirmed" : "triage running…" });
+      steps.push({ label: "Validated", cls: validated ? "done" : "active", ev: validated, meta: dismissed && !issue ? "false positive" : validated ? "triage confirmed" : "triage running…" });
       var fx = fix || fixFail;
       steps.push({ label: "Fix", cls: fix ? "done" : fixFail ? "done bad" : validated ? "active" : "", ev: fx,
-        meta: fx ? [fx.model === "semgrep-rule-fix" ? "rule autofix" : fx.model || "openai", fx.path || "", fixFail && !fix ? "failed" : ""].filter(Boolean).join(" · ") : validated ? "writing patch…" : "–" });
+        meta: fx ? [fx.model === "semgrep-rule-fix" ? "rule autofix" : fx.model || "llm", fixFail && !fix ? "failed" : ""].filter(Boolean).join(" · ") : validated ? "writing patch…" : "–" });
       var vr = ver || verFail;
-      var layers = vr && vr.layers ? Object.keys(vr.layers).filter(function (k) { return vr.layers[k] === true; }).length + "/" + Object.keys(vr.layers).filter(function (k) { return vr.layers[k] !== null; }).length + " layers" : "";
-      steps.push({ label: "Re-check", cls: ver ? "done good" : verFail ? "done bad" : fx ? "active" : "", ev: vr, meta: vr ? (ver ? "verified · " : "rejected · ") + layers : fx ? "verifying…" : "–" });
-      steps.push({ label: "Issue", cls: issue ? "done" + (issueClosed ? " good" : " bad") : "", ev: issue, meta: issue ? (issueClosed ? "closed" : "open") : "–", link: issue ? link(ghUrl(repo, "issue", issue.ref), "#" + issue.ref) : "" });
-      var dec = pr ? (ver ? "PR verified" : verFail ? "PR rejected" : "PR open") : fixFail && !fix ? "no safe patch" : "";
-      steps.push({ label: "Decision", cls: pr ? "done " + (ver ? "good" : verFail ? "bad" : "") : fixFail && !fix ? "done bad" : "", ev: pr || (fixFail && !fix ? fixFail : null), meta: dec || "–", link: pr ? link(ghUrl(repo, "pr", pr.ref), "PR #" + pr.ref) : "" });
+      steps.push({ label: "Re-check", cls: ver ? "done" : verFail ? "done bad" : fx ? "active" : "", ev: vr, meta: vr ? (ver ? "verified" : "rejected") : fx ? "verifying…" : "–" });
+      steps.push({ label: "Issue", cls: issue ? "done" + (issueClosed ? "" : " bad") : "", ev: issue, meta: issue ? (issueClosed ? "closed" : "open") : "–", link: issue ? link(ghUrl(repo, "issue", issue.ref), "#" + issue.ref) : "" });
+      steps.push({ label: "Decision", cls: pr ? "done" + (verFail ? " bad" : "") : fixFail && !fix ? "done bad" : "", ev: pr || (fixFail && !fix ? fixFail : null),
+        meta: pr ? (ver ? "PR verified" : verFail ? "PR rejected" : "PR open") : fixFail && !fix ? "no safe patch" : "–", link: pr ? link(ghUrl(repo, "pr", pr.ref), "PR #" + pr.ref) : "" });
       var merged = issueClosed || (green && rescan && rescan.verdict === "safe");
-      steps.push({ label: "Merged & green", cls: merged ? "done good" : pr ? "active" : "", ev: issueClosed || green || rescan, meta: merged ? "rescan clean" + (rescan ? " · " + fmtMs(rescan.ms || rescan.total_ms) : "") : pr ? "waiting for merge…" : "–",
-        link: green ? link(ghUrl(repo, "commit", green.sha), "status ↗") : "" });
+      steps.push({ label: "Merged & green", cls: merged ? "done" : pr ? "active" : "", ev: merged ? (issueClosed || green) : null, meta: merged ? "rescan clean" : pr ? "waiting for merge…" : "–" });
     }
-    $("stepTitle").innerHTML = esc(short(repo)) + ' <span class="v-' + (unsafe ? "unsafe" : "safe") + '">' + (unsafe ? "unsafe" : "safe") + "</span>" + (sha ? '<span class="sha">' + esc(sha.slice(0, 7)) + "</span>" : "");
-    $("stepHint").textContent = agentShort(anchor.agent) + " · " + ago(t0) + " ago";
-    $("stepper").innerHTML = steps.map(function (st) {
-      var off = st.ev ? "+" + fmtDur(Math.max(0, st.ev.ts - t0)) : "";
-      return '<li class="' + st.cls + '"><span class="pt"></span><span>' + esc(st.label) + (st.meta ? ' <span class="pm">' + esc(st.meta) + "</span>" : "") +
-        (st.link ? ' <span class="pl">' + st.link + "</span>" : "") + '</span><span class="pm">' + off + "</span></li>";
-    }).join("");
+    var v = unsafe ? "unsafe" : "safe";
+    setHTML($("incTitle"), esc(short(repo)) + '<span class="v ' + v + '">' + v + "</span>");
+    $("incHint").textContent = agentName(anchor.agent) + " · " + ago(t0);
+    var lastDone = -1;
+    steps.forEach(function (st, i) { if (/done/.test(st.cls)) lastDone = i; });
+    setHTML($("pipeline"), steps.map(function (st, i) {
+      var cls = st.cls + (i === lastDone ? " last" : "");
+      return '<li class="' + cls + '"><span class="n">' + (i + 1) + "</span><span>" + esc(st.label) + ' <span class="m">' + esc(st.meta || "") + (st.link ? " " + st.link : "") +
+        '</span></span><span class="m">' + (st.ev ? "+" + fmtDur(Math.max(0, st.ev.ts - t0)) : "") + "</span></li>";
+    }).join(""));
+    var done = issueClosed || ver, end = evs[evs.length - 1].ts;
+    setHTML($("incTotal"), done ? "<span>Detect → fix → verify</span><b>" + fmtDur(end - t0) + "</b>"
+      : unsafe ? "<span>Since push</span><b>" + fmtDur(now - t0) + "</b>" : "<span>Clean push, scanned in</span><b>" + fmtMs(anchor.total_ms) + "</b>");
   }
 
+  /* ================= Guild agents + handoff guard (port of Andrii's control room) ================= */
+  var ROLE_AGENTS = { "aegis-triage": "validates findings", "aegis-remediator": "writes the fix", "aegis-verifier": "proves the fix", "aegis-warden": "fleet cron · insights",
+    "aegis-rulesmith": "learns new rules", "aegis-reporter": "writes the report", "aegis-onboarder": "adds repos" };
+  var fleetAgents = {}, knownSessions = null;
+  function paintCards(d) {
+    var byAgent = {};
+    (d.agents || []).forEach(function (a) { byAgent[a.agent] = a; });
+    var names = Object.keys(fleetAgents).concat(Object.keys(ROLE_AGENTS));
+    Object.keys(byAgent).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
+    var html = "", lastGroup = "";
+    names.forEach(function (name) {
+      var group = fleetAgents[name] ? "Sentinels · one per 3 repos" : "Role agents";
+      if (group !== lastGroup) { html += '<div class="grp">' + esc(group) + "</div>"; lastGroup = group; }
+      var a = byAgent[name], cur = a && (a.current || a.latest), st = a ? a.state : "never";
+      var cls = st === "working" ? "working" : (cur && cur.status === "failed") ? "failed" : a ? "done" : "never";
+      var sub = fleetAgents[name] ? fleetAgents[name].map(short).join(", ") : (ROLE_AGENTS[name] || "");
+      var status = st === "working" ? "working" : cur ? (cur.status === "failed" ? "failed " : "") + ago(cur.created_at) : "idle";
+      var tool = "";
+      if (cur) {
+        var t = cur.last_tool_call;
+        tool = (t ? esc(t.name) : esc(cur.note || cur.event || "")) + (cur.repo ? " · " + esc(short(cur.repo)) : "") + link(cur.session_url, "session ↗");
+      }
+      html += '<div class="ag ' + cls + '"><div class="top"><span class="led"></span><b>' + esc(agentName(name).replace(/^aegis-/, "")) + '</b><span class="st">' + esc(status) +
+        "</span></div>" + (sub ? "<small>" + esc(sub) + "</small>" : "") + (tool ? '<div class="tool">' + tool + "</div>" : "") + "</div>";
+    });
+    setHTML($("cards"), html || '<div class="empty">No agents</div>');
+  }
+  function loadGuild() {
+    return getJSON("/api/guild").then(function (d) {
+      if (!d.ok) { $("guildHint").textContent = "Guild · offline on this host"; paintCards({ agents: [] }); return; }
+      var sessions = d.sessions || [], working = sessions.filter(function (s) { return s.status === "working"; }).length;
+      $("guildHint").textContent = "Guild · live · " + working + " awake · " + sessions.length + " sessions";
+      paintCards(d);
+      if (knownSessions) {
+        var fresh = sessions.filter(function (s) { return !knownSessions[s.id] && Date.now() / 1000 - s.created_at < 120; });
+        if (fresh.length) { pulse(LIME); toast(false, "Agent woke up", agentName(fresh[0].agent) + (fresh[0].repo ? " · " + short(fresh[0].repo) : "")); }
+      }
+      knownSessions = knownSessions || {};
+      sessions.forEach(function (s) { knownSessions[s.id] = 1; });
+    }).catch(function () { $("guildHint").textContent = "Guild · offline"; });
+  }
   function loadHandoffs() {
     return getJSON("/api/handoffs").then(function (d) {
-      var rows = (d.handoffs || []).slice(0, 8);
-      $("hoHint").textContent = rows.length ? rows.length + " checked" : "agent → agent";
-      $("handoffs").innerHTML = rows.length ? rows.map(function (h) {
+      var rows = (d.handoffs || []).slice(0, 7);
+      $("hoHint").textContent = rows.length ? rows.length + " handoffs checked by Semgrep" : "Agent → agent handoffs, checked by Semgrep";
+      setHTML($("handoffs"), rows.length ? rows.map(function (h) {
         var m = /^(.+?)->(.+?):(.+)$/.exec(String(h.ref || ""));
-        var from = h.agent || (m && m[1]) || "?", to = h.to_agent || (m && m[2]) || "?", what = h.kind_ || h.artifact || (m && m[3]) || "";
-        var rejected = h.kind === "handoff_rejected" || h.verdict === "rejected" || h.result === "rejected" || h.ok === false;
-        var ok = h.kind === "handoff_ok" || h.verdict === "ok" || h.ok === true || (!rejected && h.kind === "handoff");
-        return '<li class="' + (rejected ? "rejected" : ok ? "ok" : "") + '"><span class="ha">' + esc(agentShort(from)) + " <b>→</b> " + esc(agentShort(to)) + (what ? " · " + esc(what) : "") +
-          '</span><span class="hv">' + (rejected ? "rejected" : "ok") + '</span><span class="hm">' + ago(h.ts) + " ago · " + esc(short(h.repo)) + (h.reason ? " · " + esc(h.reason) : "") + (h.rule_id ? " · " + esc(ruleShort(h.rule_id)) : "") + "</span></li>";
-      }).join("") : '<li class="empty">no handoffs yet</li>';
+        var from = h.agent || (m && m[1]) || "?", to = h.to_agent || (m && m[2]) || "?", what = h.artifact || (m && m[3]) || "";
+        var rejected = h.kind === "handoff_rejected" || h.verdict === "rejected" || h.ok === false;
+        return '<li class="' + (rejected ? "rejected" : "ok") + '"><span class="ha">' + esc(agentName(from)) + " <b>→</b> " + esc(agentName(to)) + (what ? " · " + esc(what) : "") +
+          '</span><span class="hv">' + (rejected ? "rejected" : "ok") + '</span><span class="hm">' + ago(h.ts) + " · " + esc(short(h.repo)) +
+          (h.reason ? " · " + esc(h.reason) : "") + (h.rule_id ? " · " + esc(ruleShort(h.rule_id)) : "") + "</span></li>";
+      }).join("") : '<li class="empty">No handoffs yet</li>');
     }).catch(function () {});
   }
 
-  /* projector mode: dark, big, main view fits 1080p; toggled with the button, the P key or ?projector */
-  function setProjector(on) {
-    document.body.classList.toggle("projector", on);
-    $("projBtn").classList.toggle("on", on);
-    try { localStorage.setItem("aegis.projector", on ? "1" : "0"); } catch (e) {}
+  /* ================= feed + reactions ================= */
+  var lastTs = null, toastTimer = null;
+  function kindOf(e) {
+    if (e.kind === "scan") return { c: e.verdict === "unsafe" ? "bad" : "good", l: e.verdict === "unsafe" ? "Unsafe" : "Safe" };
+    var raw = LABEL[e.kind] || String(e.kind).replace(/_/g, " ");
+    var l = raw.charAt(0).toUpperCase() + raw.slice(1).replace(" opened", "");
+    var bad = isHot(e) || /fail|denied|reject/.test(e.kind);
+    return { c: bad ? "bad" : isGood(e) ? "good" : "act", l: l };
   }
-  (function () {
-    var want = /projector/.test(location.search);
-    try { if (!want && localStorage.getItem("aegis.projector") === "1") want = true; } catch (e) {}
-    if (!want && window.innerWidth >= 1800) want = true;
-    setProjector(want);
-  })();
-  $("projBtn").addEventListener("click", function () { setProjector(!document.body.classList.contains("projector")); });
-  window.addEventListener("keydown", function (e) { if (e.key === "p" || e.key === "P") setProjector(!document.body.classList.contains("projector")); });
+  function toast(bad, k, t) {
+    var n = $("toast");
+    n.className = "toast on" + (bad ? " bad" : "");
+    $("toastK").textContent = k; $("toastT").textContent = t;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { n.className = "toast" + (bad ? " bad" : ""); }, 3800);
+  }
+  function react(fresh) {
+    var top = null;
+    fresh.forEach(function (e) {
+      var r = { scan: 3, denied: 4, pr_opened: 2, verified: 2 }[e.kind] || 0;
+      if (r && (!top || r > top.r)) top = { e: e, r: r };
+    });
+    var bad = fresh.some(isHot);
+    pulse(bad ? RED : LIME);
+    if (!top) return;
+    var e = top.e, who = agentName(e.agent) + " · " + short(e.repo);
+    if (e.kind === "scan") toast(e.verdict === "unsafe", e.verdict === "unsafe" ? e.n_findings + " findings" : "Clean", who);
+    else if (e.kind === "pr_opened") toast(false, "Fix PR #" + e.ref, who);
+    else if (e.kind === "verified") toast(false, "Verified", who);
+    else if (e.kind === "denied") toast(true, "Blocked", who);
+  }
+  /* ---- fleet chat: every agent action as a message, newest at the bottom ---- */
+  var AV = { "sentinel-01": "#0a0a0a", "sentinel-02": "#3a3a3a", "sentinel-03": "#6b6b6b", warden: "#ff4a3d", reporter: "#2f6fed", onboarder: "#2fbf71" };
+  function chatText(e) {
+    var r = "<b>" + esc(short(e.repo)) + "</b>", ref = /^\d+$/.test(e.ref || "") ? " #" + esc(e.ref) : "";
+    switch (e.kind) {
+      case "scan": return e.verdict === "unsafe"
+        ? "Push to " + r + " is unsafe. " + e.n_findings + " finding" + (e.n_findings === 1 ? "" : "s") + " in " + fmtMs(e.total_ms) + "."
+        : "Scanned " + r + ". Clean in " + fmtMs(e.total_ms) + ".";
+      case "issue_opened": return "Opened Issue" + ref + " on " + r + ".";
+      case "issue_closed": return "Closed Issue" + ref + " on " + r + ". The finding is gone.";
+      case "pr_opened": return "Proposed a fix for " + r + ": PR" + ref + ".";
+      case "pr_reviewed": return "Reviewed PR" + ref + " on " + r + ".";
+      case "verified": return "Re-scanned the fix on " + r + ". Verified.";
+      case "verify_failed": return "The fix on " + r + " didn't hold. Rejected it.";
+      case "status_set": return "Set the commit status on " + r + ".";
+      case "dismissed": return "Marked a finding on " + r + " as a false positive.";
+      case "denied": return "Tried to touch " + r + ". Blocked by policy.";
+      default: var k = String(e.kind).replace(/_/g, " "); return esc(k.charAt(0).toUpperCase() + k.slice(1)) + " on " + r + ref + ".";
+    }
+  }
+  function renderChat(events, fresh) {
+    var box = $("feed"), list = events.slice(0, 40).reverse();
+    var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    var changed = setHTML(box, list.map(function (e) {
+      var who = agentName(e.agent).replace("Sentinel ", "Sentinel "), key = String(e.agent || "").replace(/^aegis-/, "");
+      var init = /sentinel-(\d+)/.test(key) ? "S" + key.slice(-1) : key.charAt(0).toUpperCase();
+      var k = kindOf(e);
+      return '<li class="msg' + (fresh.indexOf(e) >= 0 ? " new" : "") + '"><span class="av" style="background:' + (AV[key] || "#999") + '">' + esc(init) +
+        '</span><div class="mb"><div class="mh"><b>' + esc(who) + '</b><span class="tag ' + k.c + '">' + esc(k.l) + '</span><time>' +
+        clock(e.ts) + '</time></div><p>' + chatText(e) + "</p></div></li>";
+    }).join("") || '<li class="empty">Waiting for the first push</li>');
+    if (changed && (atBottom || fresh.length || !box._seen)) { box.scrollTop = box.scrollHeight; box._seen = true; }
+    $("chatCount").textContent = events.length + " recent";
+  }
+  function loadEvents() {
+    return getJSON("/api/events?n=80").then(function (d) {
+      var events = (d.events || []).filter(function (e) { return e.repo && !/^local:|selftest/.test(e.repo); });
+      var fresh = lastTs == null ? [] : events.filter(function (e) { return e.ts > lastTs; });
+      if (events.length) lastTs = Math.max(lastTs || 0, events[0].ts);
+      renderChat(events, fresh);
+      paintMap(events);
+      paintIncident(events);
+      if (fresh.length) {
+        react(fresh); loadFleet();
+        fresh.slice().reverse().forEach(function (e) {
+          var k = kindOf(e), txt = "fleet  " + agentName(e.agent) + " · " + short(e.repo) + " · " + k.l.toLowerCase() +
+            (e.kind === "scan" ? " · " + e.n_findings + " findings" : /^\d+$/.test(e.ref || "") ? " #" + e.ref : "");
+          termQueue.push({ ts: e.ts, level: "fleet", text: txt });
+        });
+      }
+    }).catch(function () {});
+  }
+
+  /* ================= alerts ================= */
+  function loadAlerts() {
+    return getJSON("/api/alerts?hours=48").then(function (d) {
+      var a = d.alerts || [];
+      $("alerts").hidden = !a.length;
+      setHTML($("alerts"), a.slice(0, 2).map(function (x) {
+        return x.type === "injection"
+          ? '<div class="alert"><span class="tag">Attack caught</span><span class="msg">' + esc(short(x.repo)) + " told the agent to approve itself. Flagged. <code>" + esc(x.path) + ":" + esc(x.line) + "</code></span></div>"
+          : '<div class="alert"><span class="tag">Blocked</span><span class="msg">' + esc(agentName(x.agent)) + " tried " + esc(short(x.repo)) + ". Outside its fence.</span></div>";
+      }).join(""));
+    }).catch(function () {});
+  }
+
+  /* ================= breakdown charts ================= */
+  var SEV = { ERROR: "#0a0a0a", WARNING: "#ffe03d", INFO: "#c9c9c4" };
+  function loadBreakdown() {
+    return getJSON("/api/breakdown").then(function (d) {
+      var sev = d.severity || [], total = sev.reduce(function (s, x) { return s + x.n; }, 0);
+      var svg = $("donut"), sig = JSON.stringify(sev);
+      if (svg._sig === sig) { drawBars(); return; }
+      svg._sig = sig; svg.innerHTML = "";
+      var R = 62, C = 2 * Math.PI * R, off = 0;
+      svgEl("circle", { cx: 80, cy: 80, r: R, fill: "none", stroke: "#f2f2f0", "stroke-width": 18 }, svg);
+      sev.forEach(function (x) {
+        var len = total ? C * x.n / total : 0;
+        svgEl("circle", { cx: 80, cy: 80, r: R, fill: "none", stroke: SEV[x.severity] || "#ccc", "stroke-width": 18,
+          "stroke-dasharray": Math.max(0, len - 3) + " " + C, "stroke-dashoffset": -off, transform: "rotate(-90 80 80)", "stroke-linecap": "round" }, svg);
+        off += len;
+      });
+      svgEl("text", { x: 80, y: 84, "class": "c-t" }, svg).textContent = fmtK(total);
+      svgEl("text", { x: 80, y: 100, "class": "c-s" }, svg).textContent = "findings";
+      setHTML($("donutLegend"), sev.map(function (x) {
+        return '<div><i style="background:' + (SEV[x.severity] || "#ccc") + '"></i>' + esc(x.severity.charAt(0) + x.severity.slice(1).toLowerCase()) +
+          "<b>" + Math.round(100 * x.n / (total || 1)) + "%</b></div>";
+      }).join(""));
+      drawBars();
+      function drawBars() {
+      function bars(id, rows, label) {
+        var max = rows.length ? rows[0].n : 1;
+        setHTML($(id), rows.slice(0, 6).map(function (r) {
+          return '<li><div class="row"><span>' + esc(label(r)) + "</span><b>" + fmtK(r.n) + '</b></div><div class="bar"><i style="width:' +
+            Math.max(2, 100 * r.n / max).toFixed(1) + '%"></i></div></li>';
+        }).join("") || '<li class="empty">No data</li>');
+      }
+      bars("rules", d.rules || [], function (r) { return ruleShort(r.rule_id); });
+      bars("repos", d.repos || [], function (r) { return r.repo; });
+      }
+    }).catch(function () {});
+  }
+  function loadInsights() {
+    return getJSON("/api/insights?hours=24").then(function (d) {
+      var reo = d.reopened || [], noisy = d.noisy_rules || [];
+      setHTML($("reopened"), reo.slice(0, 5).map(function (r) {
+        return "<li><span>" + esc(ruleShort(r.rule_id)) + "<small>" + esc(short(r.repo)) + '</small></span><b class="x">×' + fmtInt(r.times) + "</b></li>";
+      }).join("") || '<li class="empty">Nothing reopened</li>');
+      setHTML($("noisy"), noisy.slice(0, 5).map(function (r) {
+        return "<li><span>" + esc(ruleShort(r.rule_id)) + "<small>" + fmtInt(r.dismissed) + "/" + fmtInt(r.filed) + '</small></span><b>' + Math.round(100 * r.dismiss_rate) + "%</b></li>";
+      }).join("") || '<li class="empty">No triage yet</li>');
+    }).catch(function () {});
+  }
+
+  /* ================= posture area chart ================= */
+  var tl = [];
+  function drawTimeline() {
+    var repo = $("repoSel").value, byM = {};
+    tl.forEach(function (r) {
+      if (repo && r.repo !== repo) return;
+      var m = String(r.week).slice(0, 7);
+      byM[m] = byM[m] || { ERROR: 0, WARNING: 0, INFO: 0 };
+      byM[m][r.severity in byM[m] ? r.severity : "INFO"] += r.n;
+    });
+    var keys = Object.keys(byM).sort();
+    if (!keys.length) { $("timeline").innerHTML = '<div class="empty">No history yet</div>'; return; }
+    var months = [], y = +keys[0].slice(0, 4), m = +keys[0].slice(5, 7), end = keys[keys.length - 1];
+    while (true) {
+      var k = y + "-" + String(m).padStart(2, "0");
+      months.push(k);
+      if (k >= end) break;
+      if (++m > 12) { m = 1; y++; }
+    }
+    function smooth(arr) { return arr.map(function (_, i) { var a = arr.slice(Math.max(0, i - 2), i + 3); return a.reduce(function (s, v) { return s + v; }, 0) / a.length; }); }
+    var err = smooth(months.map(function (k) { return byM[k] ? byM[k].ERROR : 0; }));
+    var wrn = smooth(months.map(function (k) { return byM[k] ? byM[k].WARNING + byM[k].INFO : 0; }));
+    var VW = 1200, VH = 260, top = 10, bot = 230, max = 1;
+    err.forEach(function (v, i) { max = Math.max(max, v + wrn[i]); });
+    var X = function (i) { return months.length < 2 ? 0 : i * VW / (months.length - 1); };
+    var Y = function (v) { return bot - (bot - top) * v / max; };
+    function area(lo, hi) {
+      var d = "M0 " + Y(lo[0] + hi[0]).toFixed(1);
+      hi.forEach(function (v, i) { d += " L" + X(i).toFixed(1) + " " + Y(lo[i] + v).toFixed(1); });
+      for (var i = lo.length - 1; i >= 0; i--) d += " L" + X(i).toFixed(1) + " " + Y(lo[i]).toFixed(1);
+      return d + " Z";
+    }
+    var zero = err.map(function () { return 0; });
+    var svg = '<svg viewBox="0 0 ' + VW + " " + VH + '" preserveAspectRatio="none">';
+    [0.5, 1].forEach(function (f) { svg += '<line class="gl" x1="0" x2="' + VW + '" y1="' + Y(max * f) + '" y2="' + Y(max * f) + '"/>'; });
+    svg += '<path d="' + area(zero, err) + '" fill="#0a0a0a"/>';
+    svg += '<path d="' + area(err, wrn) + '" fill="#ffe03d"/>';
+    var step = months.length > 180 ? 4 : months.length > 72 ? 2 : 1;
+    months.forEach(function (k, i) {
+      if (k.slice(5) === "01" && +k.slice(0, 4) % step === 0) svg += '<text class="ax" x="' + Math.min(VW - 30, X(i) + 4) + '" y="' + (VH - 6) + '">' + k.slice(0, 4) + "</text>";
+    });
+    svg += '<line class="cur" id="cur" x1="-10" x2="-10" y1="' + top + '" y2="' + bot + '"/></svg>';
+    var box = $("timeline");
+    box.innerHTML = svg;
+    var total = months.reduce(function (s, k) { return s + (byM[k] ? byM[k].ERROR + byM[k].WARNING + byM[k].INFO : 0); }, 0);
+    $("tlBig").textContent = fmtInt(total);
+    $("tlNote").textContent = keys[0].slice(0, 4) + " – " + end.slice(0, 4) + " · by commit date";
+    box.onmousemove = function (ev) {
+      var r = box.getBoundingClientRect(), i = Math.round((ev.clientX - r.left) / r.width * (months.length - 1));
+      i = Math.max(0, Math.min(months.length - 1, i));
+      var c = $("cur"); c.setAttribute("x1", X(i)); c.setAttribute("x2", X(i));
+      var v = byM[months[i]] || { ERROR: 0, WARNING: 0, INFO: 0 }, tip = $("tip");
+      tip.hidden = false; tip.style.left = ev.clientX + 14 + "px"; tip.style.top = ev.clientY - 12 + "px";
+      tip.textContent = months[i] + " · " + v.ERROR + " error · " + (v.WARNING + v.INFO) + " warning";
+    };
+    box.onmouseleave = function () { $("tip").hidden = true; var c = $("cur"); c.setAttribute("x1", -10); c.setAttribute("x2", -10); };
+  }
+  function loadTimeline() {
+    return getJSON("/api/timeline?weeks=1100&bucket=month").then(function (d) {
+      var sig = JSON.stringify(d.rows || []);
+      if (sig === loadTimeline._sig) return;
+      loadTimeline._sig = sig;
+      tl = d.rows || [];
+      var sel = $("repoSel"), cur = sel.value;
+      var repos = Array.from(new Set(tl.map(function (r) { return r.repo; }))).sort();
+      sel.innerHTML = '<option value="">All repos</option>' + repos.map(function (r) {
+        return '<option value="' + esc(r) + '"' + (r === cur ? " selected" : "") + ">" + esc(r) + "</option>";
+      }).join("");
+      drawTimeline();
+    }).catch(function () {});
+  }
+  $("repoSel").addEventListener("change", drawTimeline);
+
+  /* ================= patrol terminal ================= */
+  var termQueue = [], pSeq = 0, term = $("term");
+  function clock(ts) { return new Date(ts * 1000).toLocaleTimeString("en-US", { hour12: false }); }
+  var hp = $("hpList");
+  function heroLine(l) {
+    var html;
+    if (l.level === "hit" || l.level === "warn") {
+      html = '<span class="d ' + l.level + '"></span><span class="t">' + esc(String(l.rule || "").replace(/^js-/, "js · ")) +
+        "<small>" + esc(l.path || "") + ":" + esc(l.line || "") + '</small></span><span class="r">' + esc(l.repo || "") + "</span>";
+    } else if (l.level === "ok") {
+      html = '<span class="d ok"></span><span class="t">Clean</span><span class="r">' + esc(l.repo || "") + "</span>";
+    } else if (l.level === "fleet") {
+      html = '<span class="d fleet"></span><span class="t">' + esc(l.text.replace(/^fleet\s+/, "")) + '</span><span class="r">fleet</span>';
+    } else return;
+    var e = hp.querySelector(".hp-empty"); if (e) e.remove();
+    var li = document.createElement("li");
+    li.innerHTML = html;
+    hp.insertBefore(li, hp.firstChild);
+    while (hp.children.length > 6) hp.removeChild(hp.lastChild);
+  }
+  function pushLine(l) {
+    heroLine(l);
+    var li = document.createElement("li");
+    li.className = "l-" + l.level;
+    li.innerHTML = '<span class="ts">' + clock(l.ts) + "</span><span>" + esc(l.text) + "</span>";
+    var prev = term.querySelector(".cursor");
+    if (prev) prev.classList.remove("cursor");
+    li.lastChild.classList.add("cursor");
+    term.appendChild(li);
+    while (term.children.length > 26) term.removeChild(term.firstChild);
+  }
+  setInterval(function () {  // drip lines out so the log reads like a live stream, not page refreshes
+    if (!termQueue.length) return;
+    var burst = termQueue.length > 20 ? 4 : 1;
+    while (burst-- && termQueue.length) pushLine(termQueue.shift());
+  }, 140);
+  function loadPatrol() {
+    return getJSON("/api/stream?after=" + pSeq).then(function (d) {
+      var lines = d.lines || [];
+      if (!pSeq && lines.length > 22) lines = lines.slice(-22);
+      lines.forEach(function (l) { pSeq = Math.max(pSeq, l.seq); termQueue.push(l); });
+      var st = d.stats || {};
+      $("patrolPill").textContent = d.on ? "Live" : "Off";
+      if (st.started) $("patrolUp").textContent = "aegis patrol · up " + fmtDur(Date.now() / 1000 - st.started);
+      countTo("pRepos", st.repos || 0, fmtInt);
+      countTo("pFind", st.findings || 0, fmtInt);
+      countTo("pSecrets", st.secrets || 0, fmtInt);
+      countTo("hpRepos", st.repos || 0, fmtInt);
+      countTo("hpFind", st.findings || 0, fmtInt);
+      countTo("hpSec", st.secrets || 0, fmtInt);
+      if (st.started) $("hpSub").textContent = "Live · up " + fmtDur(Date.now() / 1000 - st.started);
+      $("pRate").textContent = st.repos ? Math.round(100 * (st.dirty || 0) / st.repos) + "%" : "0%";
+      var rules = st.rules || [], max = rules.length ? rules[0][1] : 1;
+      setHTML($("pRules"), rules.map(function (r) {
+        return '<li><div class="row"><span>' + esc(ruleShort(r[0])) + "</span><b>" + fmtInt(r[1]) + '</b></div><div class="bar"><i style="width:' +
+          Math.max(3, 100 * r[1] / max).toFixed(1) + '%"></i></div></li>';
+      }).join("") || '<li class="empty">Warming up</li>');
+    }).catch(function () {});
+  }
 
   /* ================= schedule ================= */
   function every(fn, ms) { fn(); setInterval(fn, ms); }
@@ -618,11 +655,12 @@
   every(loadFleet, 6000);
   every(loadStats, 5000);
   every(loadAlerts, 5000);
-  every(loadGuild, 4000);
-  every(loadHandoffs, 5000);
   every(loadLatency, 10000);
   every(loadMttr, 10000);
+  every(loadBreakdown, 30000);
   every(loadInsights, 15000);
   every(loadTimeline, 60000);
-  if (REDUCED) requestAnimationFrame(frame);
+  every(loadPatrol, 1500);
+  every(loadGuild, 4000);
+  every(loadHandoffs, 5000);
 })();
