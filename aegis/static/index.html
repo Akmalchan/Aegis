@@ -3,70 +3,174 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AEGIS fleet</title>
+<title>Aegis · autonomous security fleet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand">
-    <h1>AEGIS <span class="dot">·</span> autonomous security fleet</h1>
-    <div class="sub" id="sub">connecting…</div>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="nav">
+  <a class="brand" href="#live">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.5 4 5.5v6.2c0 4.6 3.3 8.6 8 9.8 4.7-1.2 8-5.2 8-9.8V5.5L12 2.5Z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Aegis</span>
+  </a>
+  <nav class="tabs" aria-label="Pages">
+    <a href="#live" data-page="live" class="tab">Live</a>
+    <a href="#how" data-page="how" class="tab">How it works</a>
+  </nav>
+  <div class="nav-right">
+    <span class="status" id="status"><i class="pulse"></i><span id="statusText">connecting</span></span>
+    <span class="clock mono" id="clock">--:--:--</span>
   </div>
-  <div class="chips" id="chips"></div>
 </header>
 
-<main class="layout">
-  <div class="col-main">
+<main>
+<!-- ============================== LIVE ============================== -->
+<section class="page" id="page-live">
+  <div class="hero">
+    <div class="eyebrow mono">Autonomous security fleet · live</div>
+    <h1 class="display">Every push, judged<br><em>in seconds.</em></h1>
+    <p class="lede">Agents on Guild watch every repository. Semgrep decides, deterministically, whether a change made the code unsafe. The agent opens the issue and the fix, then proves the fix. ClickHouse remembers everything.</p>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-label mono">Agents on duty</div><div class="kpi-value" id="kAgents">0</div></div>
+    <div class="kpi"><div class="kpi-label mono">Repos guarded</div><div class="kpi-value" id="kRepos">0</div></div>
+    <div class="kpi"><div class="kpi-label mono">Findings remembered</div><div class="kpi-value" id="kFindings">0</div></div>
+    <div class="kpi"><div class="kpi-label mono">Scan p50</div><div class="kpi-value" id="kScan">–</div></div>
+    <div class="kpi"><div class="kpi-label mono">Mean time to fix</div><div class="kpi-value" id="kMttr">–</div></div>
+  </div>
+
+  <div class="alerts" id="alerts" hidden></div>
+
+  <div class="grid-2">
     <section class="panel">
-      <h2>Fleet</h2>
-      <div class="fleet" id="fleet"></div>
+      <div class="panel-head"><h2>Fleet</h2><span class="hint mono" id="fleetHint"></span></div>
+      <svg id="map" viewBox="0 0 640 380" role="img" aria-label="Agents and the repositories they guard"></svg>
     </section>
 
     <section class="panel">
-      <div class="panel-head">
-        <h2>Security posture · open findings per month, full git history</h2>
-        <div class="controls">
-          <label for="repoSel" class="muted">repo</label>
-          <select id="repoSel"><option value="">All repos</option></select>
-          <button id="tblBtn" type="button">table</button>
-        </div>
+      <div class="panel-head"><h2>Latest incident</h2><span class="hint mono" id="incHint">waiting for a push</span></div>
+      <div class="incident" id="incident">
+        <div class="inc-title" id="incTitle">No incident yet</div>
+        <ol class="pipeline" id="pipeline"></ol>
+        <div class="inc-total" id="incTotal"></div>
       </div>
-      <div class="legend" id="legend"></div>
-      <div class="chart" id="chart"></div>
-      <div class="tablewrap" id="tbl" hidden></div>
-      <div class="note" id="tlNote"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Fleet intelligence <span class="muted small" id="insHours"></span></h2>
-      <div class="insights">
-        <div class="mini"><h3>Rising repos</h3><div id="rising"></div></div>
-        <div class="mini"><h3>Noisy rules</h3><div id="noisy"></div></div>
-        <div class="mini"><h3>Reopened findings</h3><div id="reopened"></div></div>
-      </div>
+      <div class="feed-head mono">Live feed</div>
+      <ul class="feed" id="feed"></ul>
     </section>
   </div>
 
-  <div class="col-side">
-    <section class="panel feed-panel">
-      <div class="panel-head"><h2>Live feed</h2><span class="muted small" id="feedSrc"></span></div>
-      <ol class="feed" id="feed"></ol>
-    </section>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Security posture <span class="muted">· open findings per month, full git history</span></h2>
+      <div class="controls">
+        <select id="repoSel" aria-label="Repository"><option value="">All repos</option></select>
+      </div>
+    </div>
+    <div class="legend mono"><span><i class="sw sev-ERROR"></i>Error</span><span><i class="sw sev-WARNING"></i>Warning</span><span><i class="sw sev-INFO"></i>Info</span></div>
+    <div class="timeline" id="timeline"><div class="empty">Loading history…</div></div>
+    <div class="hint mono" id="tlNote"></div>
+  </section>
 
+  <div class="grid-3">
     <section class="panel">
-      <h2>Agent latency</h2>
-      <div id="latency"></div>
+      <div class="panel-head"><h2>Noisy rules</h2><span class="hint mono">dismissed / filed</span></div>
+      <ul class="rows" id="noisy"><li class="empty">–</li></ul>
     </section>
-
     <section class="panel">
-      <h2>Mean time to remediate</h2>
-      <div id="mttr"></div>
+      <div class="panel-head"><h2>Keeps coming back</h2><span class="hint mono">reopened findings</span></div>
+      <ul class="rows" id="reopened"><li class="empty">–</li></ul>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Agent latency</h2><span class="hint mono">p50 · p95</span></div>
+      <ul class="rows" id="latency"><li class="empty">–</li></ul>
     </section>
   </div>
+</section>
+
+<!-- ============================== HOW ============================== -->
+<section class="page" id="page-how" hidden>
+  <div class="hero">
+    <div class="eyebrow mono">Architecture</div>
+    <h1 class="display">How Aegis<br><em>thinks.</em></h1>
+    <p class="lede">The detection has no context window and no opinion: Semgrep's verdict is deterministic. The agents only do what a security engineer would do next, and every action is fenced, recorded and verified.</p>
+  </div>
+
+  <section class="panel arch-panel">
+    <svg id="arch" viewBox="0 0 960 400" role="img" aria-label="Push flows from GitHub to a Guild agent, which calls the Semgrep scanner, stores results in ClickHouse, and acts back on GitHub">
+      <path class="flow" d="M190 110 H300"/>
+      <path class="flow" d="M560 110 H670"/>
+      <path class="flow" d="M790 160 V250"/>
+      <path class="flow back" d="M670 300 H430 V230"/>
+      <path class="flow act" d="M300 190 H115 V160"/>
+      <g class="node n-gh" transform="translate(40 60)">
+        <rect width="150" height="100" rx="14"/>
+        <text x="75" y="46" class="nt">GitHub</text>
+        <text x="75" y="70" class="ns">push · pull request</text>
+      </g>
+      <g class="node n-guild" transform="translate(300 30)">
+        <rect width="260" height="200" rx="18"/>
+        <text x="130" y="34" class="nt">Guild.ai</text>
+        <g transform="translate(20 52)"><rect class="sub" width="220" height="40" rx="10"/><text x="110" y="25" class="ns">sentinel · one per 3 repos</text></g>
+        <g transform="translate(20 100)"><rect class="sub" width="220" height="36" rx="10"/><text x="110" y="23" class="ns">triage · remediator · verifier</text></g>
+        <g transform="translate(20 144)"><rect class="sub fence" width="220" height="36" rx="10"/><text x="110" y="23" class="ns">credential policy fence</text></g>
+      </g>
+      <g class="node n-sem" transform="translate(670 60)">
+        <rect width="240" height="100" rx="14"/>
+        <text x="120" y="46" class="nt">Semgrep scanner</text>
+        <text x="120" y="70" class="ns">baseline diff · rules + registry</text>
+      </g>
+      <g class="node n-ch" transform="translate(670 250)">
+        <rect width="240" height="100" rx="14"/>
+        <text x="120" y="46" class="nt">ClickHouse</text>
+        <text x="120" y="70" class="ns">scans · findings · actions</text>
+      </g>
+      <text x="245" y="96" class="fl">webhook</text>
+      <text x="615" y="96" class="fl">scan_diff</text>
+      <text x="804" y="210" class="fl" text-anchor="start">record</text>
+      <text x="445" y="290" class="fl" text-anchor="start">memory · skip dismissed · MTTR</text>
+      <text x="200" y="212" class="fl">status · issue · fix PR</text>
+      <circle class="dot" r="4"><animateMotion dur="2.4s" repeatCount="indefinite" path="M190 110 H300"/></circle>
+      <circle class="dot" r="4"><animateMotion dur="2.4s" begin="0.6s" repeatCount="indefinite" path="M560 110 H670"/></circle>
+      <circle class="dot" r="4"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite" path="M790 160 V250"/></circle>
+      <circle class="dot cool" r="4"><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite" path="M670 300 H430 V230"/></circle>
+      <circle class="dot act" r="4"><animateMotion dur="2.4s" begin="1.8s" repeatCount="indefinite" path="M300 190 H115 V160"/></circle>
+    </svg>
+  </section>
+
+  <ol class="steps">
+    <li><span class="num mono">01</span><h3>Wake</h3><p>A push to any guarded repo fires a Guild webhook trigger. The sentinel that owns that repo wakes up with the raw GitHub payload.</p></li>
+    <li><span class="num mono">02</span><h3>Judge</h3><p>The sentinel asks the scanner one question: did this change make the repo unsafe? Semgrep runs against the previous commit, so only what the push introduced counts.</p></li>
+    <li><span class="num mono">03</span><h3>Act</h3><p>Unsafe: a red commit status, one Issue per finding with impact and fix, and a pull request with the patch. Safe: green, and the PR gets approved.</p></li>
+    <li><span class="num mono">04</span><h3>Verify</h3><p>When the fix lands, the sentinel scans again. The finding is gone, so the Issue closes itself with the commit that proved it.</p></li>
+    <li><span class="num mono">05</span><h3>Remember</h3><p>Every scan, finding and action lands in ClickHouse. A false positive dismissed once is never filed again anywhere in the fleet.</p></li>
+  </ol>
+
+  <div class="grid-3 pillars">
+    <section class="panel pillar"><div class="eyebrow mono">Deterministic</div><h3>No model decides what is vulnerable.</h3><p>The verdict is Semgrep's. The LLM explains and patches; it never gets to say "looks fine". A comment telling the agent to approve the file is flagged as an attack.</p></section>
+    <section class="panel pillar"><div class="eyebrow mono">Fenced</div><h3>A hundred agents with write access is a threat.</h3><p>Each sentinel can only touch its own three repos. Guild's credential proxy enforces that, not a prompt.</p></section>
+    <section class="panel pillar"><div class="eyebrow mono">Remembered</div><h3>The fleet learns.</h3><p><span id="howFindings">22,000+</span> findings across the full history of real repos. Rising repos, noisy rules and reopened bugs change what agents do tomorrow.</p></section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Built on</h2></div>
+    <div class="stack">
+      <div class="stack-item"><div class="stack-name">Guild.ai</div><p>Hosts the agents: webhook and cron triggers, the scanner as a custom integration, credential policies, skills, sub-agents, evals.</p></div>
+      <div class="stack-item"><div class="stack-name">Semgrep</div><p>Detection: baseline-diff scans, bundled rules with autofixes, registry packs, prompt-injection rules for code that talks to agents.</p></div>
+      <div class="stack-item"><div class="stack-name">ClickHouse</div><p>Fleet memory: enrichment on every scan, insights for the warden, the full-history posture timeline in milliseconds.</p></div>
+      <div class="stack-item"><div class="stack-name">GitHub</div><p>Where the agents act: commit statuses, Issues, branches, pull requests, reviews.</p></div>
+    </div>
+  </section>
+</section>
 </main>
 
-<div class="flash" id="flash" aria-live="assertive"><div class="flash-inner" id="flashText"></div></div>
-<div class="tip" id="tip" role="tooltip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"><div class="toast-k mono" id="toastK"></div><div class="toast-t" id="toastT"></div></div>
+<div class="tip mono" id="tip" hidden></div>
 
 <script src="/static/app.js"></script>
 </body>

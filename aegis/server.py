@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from . import config, scanner, state, enrich, ch, supply_chain, analyst_guild, analyst_openai
 from . import dashboard
-from . import github_status, verify, fix  # stream V: commit status setter + fix verification + span patcher
+from . import github_status, verify, fix, rules_api, guard  # stream V: commit status setter + fix verification + span patcher
 
 app = FastAPI(title="AEGIS Scanner", version="1.0.0")
 dashboard.mount(app)
@@ -31,18 +31,24 @@ def require_key(x_aegis_key: str | None = Header(default=None)) -> None:
 app.include_router(verify.router, dependencies=[Depends(require_key)])
 app.include_router(github_status.router, dependencies=[Depends(require_key)])
 app.include_router(fix.router, dependencies=[Depends(require_key)])
+app.include_router(guard.router, dependencies=[Depends(require_key)])  # handoff guard: Semgrep validates agent-to-agent artifacts
+
+
+# repo and sha become git argv (clone URL, checkout target): no leading "-", no whitespace, owner/name only
+REPO_RE = r"^(local:/\S+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)$"
+REF_RE = r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
 
 
 class ScanDiffIn(BaseModel):
-    repo: str = Field(description="owner/name")
-    base_sha: str = Field(description="commit before the push")
-    head_sha: str = Field(description="commit after the push")
+    repo: str = Field(description="owner/name", pattern=REPO_RE)
+    base_sha: str = Field(description="commit before the push", pattern=r"^$|" + REF_RE)
+    head_sha: str = Field(description="commit after the push", pattern=REF_RE)
     agent: str = Field(description="calling agent name, e.g. aegis-sentinel-01")
 
 
 class ScanFullIn(BaseModel):
-    repo: str
-    sha: str
+    repo: str = Field(pattern=REPO_RE)
+    sha: str = Field(pattern=REF_RE)
     agent: str
 
 
@@ -50,7 +56,7 @@ class ActionIn(BaseModel):
     model_config = ConfigDict(extra="allow")  # lenient: status_set may carry state/description
     agent: str
     repo: str
-    kind: Literal["status_set", "issue_opened", "issue_closed", "pr_opened", "pr_reviewed", "dismissed", "denied", "email", "verified", "verify_failed"]
+    kind: Literal["status_set", "issue_opened", "issue_closed", "pr_opened", "pr_reviewed", "dismissed", "denied", "email", "verified", "verify_failed", "handoff_ok", "handoff_rejected"]
     ref: str
     fingerprint: str = ""
     latency_ms: int = 0
@@ -64,8 +70,9 @@ def _scan(repo: str, sha: str, base_sha: str, agent: str, trigger: str) -> dict:
         try:
             workdir = scanner.checkout(repo, sha, config.GITHUB_TOKEN)
         except subprocess.CalledProcessError as e:
-            state.log_event("error", agent=agent, repo=repo, stage="checkout", error=(e.stderr or str(e))[-300:])
-            raise HTTPException(404, f"cannot check out {repo}@{sha}: {(e.stderr or '').strip()[-200:]}")
+            err = config.redact(e.stderr or str(e))  # str(e) carries argv, i.e. the token-bearing clone URL
+            state.log_event("error", agent=agent, repo=repo, stage="checkout", error=err[-300:])
+            raise HTTPException(404, f"cannot check out {repo}@{sha}: {config.redact(e.stderr or '').strip()[-200:]}")
         real_sha = scanner.head_sha(workdir)
         baseline = base_sha if trigger != "full" and scanner.usable_baseline(workdir, base_sha) else None
         if trigger != "full" and not baseline:
@@ -124,10 +131,15 @@ def record_action(body: ActionIn):
          summary="Fleet-wide analytics from ClickHouse for the warden agent.")
 def fleet_insights(hours: int = 24):
     try:
-        return ch.insights(hours)
+        out = ch.insights(hours)
     except Exception as e:  # noqa
         state.log_event("error", stage="insights", error=str(e)[:300])
-        return {"rising_repos": [], "noisy_rules": [], "reopened": [], "agent_latency": []}
+        out = {"rising_repos": [], "noisy_rules": [], "reopened": [], "agent_latency": []}
+    try:
+        out["handoffs"] = guard.handoff_summary(hours)  # ok/rejected counts + last 10 agent-to-agent handoffs
+    except Exception as e:  # noqa
+        out["handoffs"] = {"ok": 0, "rejected": 0, "last": [], "error": str(e)[:200]}
+    return out
 
 
 # ---------------------------------------------------------------- legacy v1 (webhook -> analyst)
@@ -221,11 +233,14 @@ async def github_webhook(request: Request, bg: BackgroundTasks):
     return {"queued": True, "repo": repo, "sha": sha[:7], "files": files}
 
 
-@app.post("/scan")
+@app.post("/scan", dependencies=[Depends(require_key)])
 def manual_scan(repo: str, sha: str = "HEAD", full: bool = True):
-    """Manual trigger for demos/tests: scan a repo at a sha (all tracked files by default)."""
+    """Manual trigger for demos/tests: scan a repo at a sha (all tracked files by default). Needs X-AEGIS-Key like
+    every other endpoint that spends GITHUB_TOKEN / files issues."""
     workdir = scanner.checkout(repo, sha, config.GITHUB_TOKEN)
     files = scanner.all_tracked_files(workdir) if full else []
     import subprocess
     real_sha = subprocess.run(["git", "-C", str(workdir), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     return process_push(repo, real_sha, files, pusher="manual")
+
+app.include_router(rules_api.router, dependencies=[Depends(require_key)])  # rule gate: /rules/propose, /rules

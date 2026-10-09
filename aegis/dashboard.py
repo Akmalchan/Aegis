@@ -223,3 +223,22 @@ def api_stats():
             "findings": int(s.get("findings") or 0), "scans": int(s.get("scans") or 0),
             "actions": int(s.get("actions") or 0), "ch_repos": int(s.get("repos") or 0),
             "rules": int(s.get("rules") or 0), "query_ms": s.get("query_ms", ms if ok else 0)}
+
+
+@router.get("/api/alerts", tags=["dashboard"])
+def api_alerts(hours: int = Query(48, ge=1, le=24 * 30)):
+    """Attacks on the fleet itself: prompt injection planted in a repo, and policy denials."""
+    ch = _ch()
+    if ch is None or not _ch_on():
+        return {"ch": False, "alerts": []}
+    inj = ch._rows(
+        "SELECT max(ts) AS last_ts, agent, repo, path, min(line) AS first_line, rule_id FROM aegis.findings "
+        "WHERE rule_id LIKE '%agent-directed%' AND agent != 'backfill' AND ts > now() - INTERVAL {h:UInt32} HOUR "
+        "GROUP BY agent, repo, path, rule_id ORDER BY last_ts DESC LIMIT 10", {"h": hours}, "alerts") or []
+    den = ch._rows(
+        "SELECT ts, agent, repo, ref FROM aegis.actions WHERE kind = 'denied' "
+        "AND ts > now() - INTERVAL {h:UInt32} HOUR ORDER BY ts DESC LIMIT 10", {"h": hours}, "alerts") or []
+    out = [{"type": "injection", "ts": r["last_ts"], "line": r["first_line"], **r} for r in inj] + [{"type": "denied", **r} for r in den]
+    out = _clean(out)
+    out.sort(key=lambda r: r.get("ts") or 0, reverse=True)
+    return {"ch": True, "alerts": out}

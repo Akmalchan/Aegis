@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from . import config, scanner, state, ch
+from . import config, scanner, state, ch, guard
 
 log = logging.getLogger("aegis.verify")
 router = APIRouter()
@@ -82,7 +82,7 @@ def _venv(repo: str, workdir: Path) -> tuple[Path, str]:
     py = venv / "bin" / "python"
     deps = "".join((workdir / f).read_text() for f in ("requirements.txt", "pyproject.toml", "setup.py")
                    if (workdir / f).exists())
-    stamp = hashlib.sha1(deps.encode()).hexdigest()[:12]
+    stamp = hashlib.sha256(deps.encode()).hexdigest()[:12]  # cache key only; sha256 so the audit scan stays clean
     stamp_file = venv / ".aegis-deps"
     if py.exists() and stamp_file.exists() and stamp_file.read_text() == stamp:
         return py, "venv cached"
@@ -179,7 +179,10 @@ def _verify(body: VerifyIn) -> dict:
     base_dir = scanner.checkout(body.repo, body.base_sha, token)
     base_findings = _scan(base_dir)
     base_rc, base_out = None, ""
+    test_guard = None  # handoff guard: an agent-authored test is scanned by Semgrep BEFORE it is ever executed
     if body.test_code:
+        test_guard = guard.guard_artifact("test", "python", body.test_code, body.agent, "scanner", repo=body.repo, ref=rel)
+    if body.test_code and test_guard["clean"]:
         py, _ = _venv(body.repo, base_dir)
         base_rc, base_out = _targeted_run(py, base_dir, rel, body.test_code)
 
@@ -189,7 +192,12 @@ def _verify(body: VerifyIn) -> dict:
     layers.append(layer_static(base_findings, head_findings, body, t0))
     layers.append(layer_regression(body.repo, head_dir, time.time()))
     t3 = time.time()
-    if body.test_code:
+    if body.test_code and not test_guard["clean"]:
+        rejected = Layer.make("targeted_test", False, "test rejected by Semgrep: " + ", ".join(test_guard["rule_ids"]) +
+                              " (not executed); " + test_guard["verdict_reason"], t3)
+        rejected["guard"] = test_guard
+        layers.append(rejected)
+    elif body.test_code:
         py, _ = _venv(body.repo, head_dir)
         head_rc, head_out = _targeted_run(py, head_dir, rel, body.test_code)
         fails_on_base, passes_on_head = base_rc == 1, head_rc == 0
@@ -224,8 +232,9 @@ def verify_fix(body: VerifyIn):
         with scanner.repo_lock(body.repo):
             return _verify(body)
     except subprocess.CalledProcessError as e:
-        return JSONResponse(404, {"verified": False, "error": f"cannot check out {body.repo}: {(e.stderr or str(e))[-300:]}"})
+        err = config.redact(e.stderr or str(e))  # str(e) carries argv, i.e. the token-bearing clone URL
+        return JSONResponse(404, {"verified": False, "error": f"cannot check out {body.repo}: {err[-300:]}"})
     except Exception as e:  # noqa
         log.exception("verify failed")
-        state.log_event("error", agent=body.agent, repo=body.repo, stage="verify", error=str(e)[:300])
-        return JSONResponse(500, {"verified": False, "error": str(e)[:300]})
+        state.log_event("error", agent=body.agent, repo=body.repo, stage="verify", error=config.redact(str(e))[:300])
+        return JSONResponse(500, {"verified": False, "error": config.redact(str(e))[:300]})

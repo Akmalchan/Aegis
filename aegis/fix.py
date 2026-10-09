@@ -6,7 +6,7 @@ import difflib, json, logging, re, subprocess, time
 from pathlib import Path
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from . import config, scanner, state, ch
+from . import config, scanner, state, ch, guard
 
 log = logging.getLogger("aegis.fix")
 router = APIRouter()
@@ -56,6 +56,8 @@ class FixOut(BaseModel):
     span: dict = Field(default_factory=lambda: {"start_line": 0, "end_line": 0})
     ms: int = 0
     error: str | None = None
+    guard: dict | None = Field(default=None, description="handoff guard: Semgrep scan of new_content vs the original; "
+                                                       "ok=false + error when the patch introduces a new finding")
 
 
 # ---------------------------------------------------------------- span location / splicing
@@ -243,8 +245,16 @@ def _fix(body: FixIn, t0: float) -> FixOut:
                                         fromfile=f"a/{body.path}", tofile=f"b/{body.path}"))
     if needs_import and imp_idx is not None:
         explanation = (explanation + f" Added `import {needs_import}` after the existing imports.").strip()
+    # handoff guard: the patch is an artifact handed to the agent; Semgrep must not find anything NEW in it
+    g = guard.guard_artifact("patch", guard.language_for_path(body.path), new_content,
+                             "semgrep-rule-fix" if model == "semgrep-rule-fix" else "openai-fix", body.agent,
+                             repo=body.repo, ref=body.path, baseline=original)
+    if not g["clean"]:
+        return FixOut(ok=False, error="patch rejected by Semgrep: " + ", ".join(g["rule_ids"]), replacement=replacement,
+                      new_content=new_content, diff=diff, explanation=explanation, model=model, guard=g,
+                      span={"start_line": a + 1, "end_line": b + 1}, ms=int((time.time() - t0) * 1000))
     return FixOut(ok=True, replacement=replacement, new_content=new_content, diff=diff, explanation=explanation,
-                  model=model, span={"start_line": a + 1, "end_line": b + 1}, ms=int((time.time() - t0) * 1000))
+                  model=model, guard=g, span={"start_line": a + 1, "end_line": b + 1}, ms=int((time.time() - t0) * 1000))
 
 
 @router.post("/fix", operation_id="fix_code", response_model=FixOut,
@@ -256,11 +266,12 @@ def fix_code(body: FixIn) -> FixOut:
         with scanner.repo_lock(body.repo):
             res = _fix(body, t0)
     except subprocess.CalledProcessError as e:
-        res = FixOut(ok=False, error=f"cannot check out {body.repo}@{body.sha[:7]}: {(e.stderr or str(e))[-300:]}",
+        err = config.redact(e.stderr or str(e))  # str(e) carries argv, i.e. the token-bearing clone URL
+        res = FixOut(ok=False, error=f"cannot check out {body.repo}@{body.sha[:7]}: {err[-300:]}",
                      ms=int((time.time() - t0) * 1000))
     except Exception as e:  # noqa
         log.exception("fix failed")
-        res = FixOut(ok=False, error=f"{type(e).__name__}: {str(e)[:300]}", ms=int((time.time() - t0) * 1000))
+        res = FixOut(ok=False, error=f"{type(e).__name__}: {config.redact(str(e))[:300]}", ms=int((time.time() - t0) * 1000))
     kind = "fix_proposed" if res.ok else "fix_failed"
     try:
         ch.insert_action(body.agent, body.repo, kind, body.sha, "", res.ms)
