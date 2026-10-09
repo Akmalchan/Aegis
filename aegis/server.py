@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
-from . import config, scanner, state, enrich, ch, analyst_guild, analyst_openai
+from . import config, scanner, state, enrich, ch, supply_chain, analyst_guild, analyst_openai
 
 app = FastAPI(title="AEGIS Scanner", version="1.0.0")
 _lock = threading.Lock()
@@ -63,6 +63,8 @@ def _scan(repo: str, sha: str, base_sha: str, agent: str, trigger: str) -> dict:
             trigger = "push-full"  # new branch / force push / unknown base: scan everything
         t1 = time.time()
         findings, n_files = scanner.scan(workdir, baseline_commit=baseline)
+        if trigger == "full":
+            findings += supply_chain.scan(workdir)  # vulnerable dependencies; [] without SEMGREP_APP_TOKEN
         semgrep_ms = int((time.time() - t1) * 1000)
     enrich.apply(repo, findings)
     verdict = enrich.verdict(findings)
