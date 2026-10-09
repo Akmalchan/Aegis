@@ -2,7 +2,7 @@
 
 Hourly fleet report with charts, filed as a GitHub issue. Read-only on code.
 
-Trigger: time, CRON `0 * * * *` (UTC), input `{"report_repo": "Akmalchan/Aegis"}`.
+Trigger: time, CRON `0 * * * *` (UTC), input `{"report_repo": "andriidrok1/aegis"}`.
 
 Logic
 1. `aegis_scanner_fleet_insights({})` (ClickHouse: rising_repos, noisy_rules, reopened, agent_latency).
@@ -21,7 +21,7 @@ sed 's/__SCANNER_INTEGRATION__/andriidrok1~aegis-scanner/g' guild-agent/reporter
 cd build/_g/aegis-reporter && npm install --save @guildai/agents-sdk@^0.7.8 @guildai-services/andriidrok1~aegis-scanner@^1.1.0 @guildai-services/guildai~github && npm run build
 guild agent save --message "role agent" --wait --publish
 guild workspace agent add andriidrok1~aegis-reporter --workspace andriidrok1~aegis
-guild trigger create --workspace andriidrok1~aegis --type time --frequency CRON --cron-expression "0 * * * *" --cron-timezone UTC --agent andriidrok1~aegis-reporter --name aegis-reporter--fleet--hourly--cron --input '{"report_repo":"Akmalchan/Aegis"}'
-echo '{"report_repo":"Akmalchan/Aegis"}' | guild agent test --mode json   # files a real report issue
+guild trigger create --workspace andriidrok1~aegis --type time --frequency CRON --cron-expression "0 * * * *" --cron-timezone UTC --agent andriidrok1~aegis-reporter --name aegis-reporter--fleet--hourly--cron --input '{"report_repo":"andriidrok1/aegis"}'
+echo '{"report_repo":"andriidrok1/aegis"}' | guild agent test --mode json   # files a real report issue
 ```
 Published 2026-10-09 as `andriidrok1~aegis-reporter`; trigger `aegis-reporter--fleet--hourly--cron`.

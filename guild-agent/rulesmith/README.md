@@ -22,7 +22,7 @@ Placeholders in `agent.ts`: `__OWNER__`, `__SCANNER_INTEGRATION__`, `__AEGIS_REP
 
 ```bash
 guild agent init --name aegis-rulesmith --agent-type GUILD_TYPESCRIPT --template LLM --category development --directory build/_g/aegis-rulesmith --owner andriidrok1
-sed -e 's/__OWNER__/andriidrok1/g' -e 's/__SCANNER_INTEGRATION__/andriidrok1~aegis-scanner/g' -e 's#__AEGIS_REPO__#Akmalchan/Aegis#g' guild-agent/rulesmith/agent.ts > build/_g/aegis-rulesmith/agent.ts
+sed -e 's/__OWNER__/andriidrok1/g' -e 's/__SCANNER_INTEGRATION__/andriidrok1~aegis-scanner/g' -e 's#__AEGIS_REPO__#andriidrok1/aegis#g' guild-agent/rulesmith/agent.ts > build/_g/aegis-rulesmith/agent.ts
 cd build/_g/aegis-rulesmith && npm install --save @guildai/agents-sdk@^0.7.8 @guildai-services/andriidrok1~aegis-scanner@^1.1.0 @guildai-services/guildai~github && npm run build
 guild agent save --message "role agent" --wait --publish
 guild workspace agent add andriidrok1~aegis-rulesmith --workspace andriidrok1~aegis
