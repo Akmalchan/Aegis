@@ -195,6 +195,8 @@ def _verify(body: VerifyIn) -> dict:
     t_all = time.time()
     layers, token = [], config.GITHUB_TOKEN
     rel = body.test_path or f"tests/test_aegis_{(body.fingerprint or 'fix')[:12]}.py"
+    if body.test_code is not None and not body.test_code.strip():
+        body.test_code = None  # empty/whitespace test_code == no targeted test
     if ".." in Path(rel).parts or Path(rel).is_absolute():
         raise ValueError("test_path must be relative and inside the repo")
 
@@ -231,9 +233,10 @@ def _verify(body: VerifyIn) -> dict:
                f" [{_summary(head_out)}]")
         layers.append(Layer.make("targeted_test", fails_on_base and passes_on_head, det, t3))
     else:
-        layers.append(Layer.make("targeted_test", None, "skipped: no test_code given", t3))
+        layers.append(Layer.make("targeted_test", None, "skipped: no targeted test for this finding class", t3))
 
-    verified = all(l["passed"] for l in layers if l["passed"] is not None)
+    # skipped layers (passed=None) never count against verified; static (L1) must always have passed
+    verified = layers[0]["passed"] is True and all(l["passed"] for l in layers if l["passed"] is not None)
     ms = int((time.time() - t_all) * 1000)
     summary = "; ".join(l["details"].split(";")[0] if l["name"] == "static" else
                         ("tests: " + l["details"] if l["name"] == "regression" else "regression test: " + l["details"])
