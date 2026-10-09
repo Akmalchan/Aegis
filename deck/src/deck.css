@@ -117,3 +117,11 @@ table.checks td.reason { font-family: var(--font-mono); font-size: 18px; color: 
 .loop .node small { font-size: 16px; }
 .cta { font-size: 64px; font-weight: 600; letter-spacing: -0.03em; color: var(--ink); text-decoration: none; border-bottom: 4px solid var(--ink); }
 .cta:hover { color: var(--pass); border-color: var(--pass); }
+.slide h1.big { font-size: 104px; }
+.claim { font-size: 44px; line-height: 1.25; font-weight: 500; max-width: 1500px; }
+.tl { display: grid; grid-template-columns: 220px 1fr; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--rule); font-size: 40px; }
+.tl .t { font-family: var(--font-mono); font-size: 44px; font-weight: 500; }
+.layer { border: 1.5px solid var(--ink); border-radius: 14px; padding: 26px 28px; font-size: 30px; line-height: 1.3; }
+.layer b { display: block; font-size: 22px; color: var(--ink-3); font-weight: 500; margin-bottom: 8px; }
+.artifact.lg { font-size: 25px; }
+.artifact .add { color: var(--pass); background: var(--pass-bg); border-radius: 4px; padding: 0 4px; }
