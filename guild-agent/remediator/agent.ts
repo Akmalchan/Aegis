@@ -133,7 +133,9 @@ for the next push.
 _Filed autonomously by AEGIS agent **<agent>** on Guild.ai. Push a fix and I will re-scan and close this issue._
 <!-- AEGIS-FP: <FP> -->
 
-Then aegis_scanner_record_action {agent, repo, kind: "issue_opened", ref: "<issue number>", fingerprint: FP} and output.
+Then github_issues_add_labels {owner, repo, issue_number: <issue number>, body: {labels: ["aegis", "security"]}} (the labels
+are mandatory: the sentinel finds its Issues by the "aegis" label), then aegis_scanner_record_action {agent, repo,
+kind: "issue_opened", ref: "<issue number>", fingerprint: FP} and output.
 
 MODE fix (default when mode is empty) — the primary finding of this push. Steps in this order:
 
@@ -217,8 +219,7 @@ one line per layer: "- <static | regression | targeted test>: <✅ passed | ❌ 
 <or: "Not run: <reason>">
 
 ## 5. Decision
-<verified true: "**Verified → pull request opened and merged by AEGIS.** PR #<PR> (filled in below)." For the merge
-line use the PR comment instead if the PR number is not known yet.>
+<verified true: "**Verified (3 layers) → AEGIS opens the pull request from \`aegis/fix-<FP>\`, labels it \`aegis:verified\` and merges it into \`<BASE_BRANCH>\`.** The PR number and merge commit follow in a comment below.">
 <verified false: "**Could not verify: <FAILED_LAYER> failed.** No pull request; nothing was pushed to \`<BASE_BRANCH>\`.
 The patch stays on \`aegis/fix-<FP>\` for a human to look at.">
 <no patch / no commit: the reason from STEP 1/2.>
@@ -226,12 +227,15 @@ The patch stays on \`aegis/fix-<FP>\` for a human to look at.">
 _Filed autonomously by AEGIS agent **<agent>** on Guild.ai. Push a fix and I will re-scan and close this issue._
 <!-- AEGIS-FP: <FP> -->
 
-Remember the returned "number" as ISSUE. aegis_scanner_record_action {agent, repo, kind: "issue_opened", ref: "<ISSUE>", fingerprint: FP}.
+Remember the returned "number" as ISSUE. The labels are not optional: the sentinel finds its Issues by the "aegis" label,
+an unlabelled Issue is never closed. Immediately after creation call github_issues_add_labels {owner, repo, issue_number: ISSUE,
+body: {labels: ["aegis", "security"]}} (idempotent, also when you passed labels on create).
+aegis_scanner_record_action {agent, repo, kind: "issue_opened", ref: "<ISSUE>", fingerprint: FP}.
 If verified is false: aegis_scanner_record_action {kind: "verify_failed", ref: "<ISSUE>", fingerprint: FP} and go to OUTPUT.
 
 STEP 5 — Push the verified fix (only when verified is true)
 a. github_pulls_create {owner, repo, title: "AEGIS: fix <rule_id> in <path>", head: "aegis/fix-<FP>", base: BASE_BRANCH,
-   body: "AEGIS Issue #<ISSUE> (do not use closing keywords: the sentinel closes the Issue after it re-scans the merge commit)\\n\\nMinimal patch for \`<rule_id>\` (<cwe>) found at <short sha>; only lines
+   body: "Tracks AEGIS Issue #<ISSUE>.\\n\\nMinimal patch for \`<rule_id>\` (<cwe>) found at <short sha>; only lines
    <span.start_line>-<span.end_line> of \`<path>\` change (patch by <model>).\\n\\n**Verification** (<verify ms> ms):\\n"
    + the same one-line-per-layer list as in the Issue
    + "\\n\\n_Opened and verified autonomously by AEGIS agent **<agent>** on Guild.ai._\\n<!-- AEGIS-FP: <FP> -->"}.
