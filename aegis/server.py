@@ -105,7 +105,7 @@ def _scan(repo: str, sha: str, base_sha: str, agent: str, trigger: str) -> dict:
     state.log_event("scan", agent=agent, repo=repo, sha=real_sha[:7], verdict=verdict, n_findings=len(findings),
                     baseline=bool(baseline), ms=ms, rules=[f["rule_id"] for f in findings])
     sarif.upload_async(repo, real_sha, agent)  # AEGIS_SARIF=1: same findings appear in the repo's Security tab
-    return {"repo": repo, "sha": real_sha, "base_sha": baseline or "", "verdict": verdict, "findings": findings,
+    return {"repo": repo, "sha": real_sha, "base_sha": baseline or "", "verdict": verdict, "findings": ch.rank(findings),
             "n_files": n_files, "ms": ms}
 
 

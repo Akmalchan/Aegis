@@ -170,14 +170,39 @@ def api_events(n: int = Query(60, ge=1, le=500)):
 @router.get("/api/timeline", tags=["dashboard"])
 def api_timeline(weeks: int = Query(52, ge=1, le=1200), bucket: str = Query("week", pattern="^(week|month|quarter)$")):
     t0 = time.perf_counter()
-    rows, ok = _call("posture_timeline", weeks, bucket, default=[])
+    fast, ok = _call("posture_fast", weeks * 7, bucket, default=None)  # posture_daily MV rollup
+    src = "posture_daily"
+    if ok and isinstance(fast, dict) and fast.get("ok") and fast.get("rows"):
+        rows = fast["rows"]
+    else:  # rollup missing/empty -> scan aegis.findings
+        rows, ok = _call("posture_timeline", weeks, bucket, default=[])
+        src = "findings"
     rows = _clean(list(rows or []))
     for r in rows:
         r["week"] = str(r.get("week", ""))[:10]
         r["n"] = int(r.get("n") or 0)
         r["severity"] = str(r.get("severity") or "INFO").upper()
-    return {"ch": ok, "rows": rows, "ms": int((time.perf_counter() - t0) * 1000),
+    return {"ch": ok, "rows": rows, "ms": int((time.perf_counter() - t0) * 1000), "source": src,
             "note": "" if ok else "ClickHouse offline — no history"}
+
+
+@router.get("/api/funnel", tags=["dashboard"])
+def api_funnel(hours: int = Query(24 * 30, ge=1, le=24 * 3650)):
+    """detected -> issue_opened -> pr_opened -> verified -> issue_closed (windowFunnel over live findings + actions)."""
+    t0 = time.perf_counter()
+    d, ok = _call("fix_funnel", hours, default=None)
+    d = _clean(d) if isinstance(d, dict) else {}
+    return {"ch": ok, "hours": hours, "stages": d.get("stages", []), "per_repo": d.get("per_repo", []),
+            "query_ms": d.get("query_ms", 0), "ms": int((time.perf_counter() - t0) * 1000)}
+
+
+@router.get("/api/anomalies", tags=["dashboard"])
+def api_anomalies(minutes: int = Query(60, ge=1, le=24 * 60)):
+    """Agents acting > 3x their own per-minute median, new bursts, or any denied action (agent_activity_1m MV)."""
+    t0 = time.perf_counter()
+    rows, ok = _call("agent_anomalies", minutes, default=[])
+    ms = round((time.perf_counter() - t0) * 1000, 1)
+    return {"ch": ok, "minutes": minutes, "anomalies": _clean(list(rows or [])), "query_ms": ms}
 
 
 @router.get("/api/latency", tags=["dashboard"])

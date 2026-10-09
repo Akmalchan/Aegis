@@ -142,10 +142,13 @@ def init() -> bool:
     if not enabled():
         return False
     try:
-        sql = (config.ROOT / "clickhouse" / "schema.sql").read_text()
-        body = "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
-        for stmt in filter(None, (s.strip() for s in body.split(";"))):
-            _client().command(stmt)
+        for name in ("schema.sql", "views.sql"):  # views.sql: MVs + one-time guarded backfill (optional)
+            p = config.ROOT / "clickhouse" / name
+            if name != "schema.sql" and not p.exists():
+                continue
+            body = "\n".join(line.split("--", 1)[0] for line in p.read_text().splitlines())
+            for stmt in filter(None, (s.strip() for s in body.split(";"))):
+                _client().command(stmt)
         return True
     except Exception as e:
         _down(e, "init")
@@ -202,32 +205,84 @@ _CYCLES = """SELECT repo, fingerprint, (toUnixTimestamp64Milli(c) - toUnixTimest
         GROUP BY repo, fingerprint)
   WHERE no > 0 AND nc > 0 AND c > o"""
 
+# fps/rids are parallel arrays (fingerprint, rule_id). Rule dismiss rate = dismissed distinct fps of the rule /
+# distinct fps filed by live agents (backfill is history, not filings); 0 when no live filings.
+# exposure_days = now - earliest commit_ts of the fingerprint in this repo (any agent, incl. backfill).
 _ENRICH = f"""
-WITH f AS (SELECT fingerprint, count() AS seen, countIf(status = 'dismissed') AS dis FROM aegis.findings
-           WHERE fingerprint IN {{fps:Array(String)}} AND ts < now64(3) GROUP BY fingerprint),
+WITH f AS (SELECT fingerprint, countIf(ts < now64(3)) AS seen, countIf(status = 'dismissed' AND ts < now64(3)) AS dis,
+                  -- exposure ignores the ts filter: backfill rows carry a load-time ts, their real time is commit_ts
+                  countIf(repo = {{repo:String}}) AS here, minIf(commit_ts, repo = {{repo:String}}) AS first_ts
+           FROM aegis.findings WHERE fingerprint IN {{fps:Array(String)}} GROUP BY fingerprint),
      d AS (SELECT fingerprint, 1 AS x FROM aegis.actions
            WHERE kind = 'dismissed' AND fingerprint IN {{fps:Array(String)}} GROUP BY fingerprint),
      m AS ({_CYCLES.format(where="AND repo = {repo:String}")}),
-     r AS (SELECT avgOrDefault(h) AS ra FROM m)
-SELECT fp, f.seen AS seen_before, (f.dis > 0 OR d.x = 1) AS dismissed_before,
-       if(m.fingerprint != '', m.h, r.ra) AS repo_mttr_h
-FROM (SELECT arrayJoin({{fps:Array(String)}}) AS fp) AS q
+     r AS (SELECT avgOrDefault(h) AS ra FROM m),
+     fr AS (SELECT fingerprint, any(rule_id) AS rr FROM aegis.findings
+            WHERE rule_id IN {{rids:Array(String)}} GROUP BY fingerprint),
+     dis AS (SELECT rule_id, fingerprint FROM aegis.findings WHERE status = 'dismissed' AND rule_id IN {{rids:Array(String)}}
+             UNION ALL
+             SELECT fr.rr AS rule_id, a.fingerprint AS fingerprint FROM aegis.actions AS a
+             INNER JOIN fr ON fr.fingerprint = a.fingerprint WHERE a.kind = 'dismissed'),
+     rd AS (SELECT rule_id, uniqExact(fingerprint) AS dismissed FROM dis GROUP BY rule_id),
+     rf AS (SELECT rule_id, uniqExact(fingerprint) AS filed FROM aegis.findings
+            WHERE agent != 'backfill' AND rule_id IN {{rids:Array(String)}} GROUP BY rule_id)
+SELECT q.fp AS fp, f.seen AS seen_before, (f.dis > 0 OR d.x = 1) AS dismissed_before,
+       if(m.fingerprint != '', m.h, r.ra) AS repo_mttr_h,
+       if(rf.filed > 0, least(rd.dismissed / rf.filed, 1), 0) AS rule_dismiss_rate,
+       if(f.here > 0, greatest(dateDiff('second', f.first_ts, now()), 0) / 86400, 0) AS exposure_days
+FROM (SELECT tupleElement(p, 1) AS fp, tupleElement(p, 2) AS rid
+      FROM (SELECT arrayJoin(arrayZip({{fps:Array(String)}}, {{rids:Array(String)}})) AS p)) AS q
 LEFT JOIN f ON f.fingerprint = q.fp LEFT JOIN d ON d.fingerprint = q.fp LEFT JOIN m ON m.fingerprint = q.fp
+LEFT JOIN rd ON rd.rule_id = q.rid LEFT JOIN rf ON rf.rule_id = q.rid
 CROSS JOIN r
 SETTINGS join_use_nulls = 0"""
 
+_SEV_BASE = {"ERROR": 60, "WARNING": 35, "INFO": 15}
+
+
+def _priority(f: dict, live: bool) -> tuple[int, list[str]]:
+    """0-100 remediation priority from severity + fleet history (already on f). Pure Python, no I/O."""
+    sev = str(f.get("severity") or "INFO").upper()
+    p = float(_SEV_BASE.get(sev, 15))
+    if not live:
+        return int(p), ["ClickHouse offline: severity only"]
+    if f.get("dismissed_before"):
+        return 0, ["fleet dismissed as false positive"]
+    why = [f"{sev} severity"]
+    seen = int(f.get("seen_before") or 0)
+    if seen > 0:
+        p += 15
+        why.append(f"seen {seen}× before in the fleet")
+    days = float(f.get("exposure_days") or 0.0)
+    if days >= 1:
+        p += min(15.0, days / 30)
+        why.append(f"exposed {int(days)} days")
+    mttr = float(f.get("repo_mttr_h") or 0.0)
+    if mttr > 24:
+        p += 10
+        why.append(f"repo fixes slowly (MTTR {round(mttr)} h)")
+    rate = float(f.get("rule_dismiss_rate") or 0.0)
+    if rate > 0:
+        p -= 40 * rate
+        why.append(f"noisy rule (dismissed {round(rate * 100)}%)")
+    return int(round(max(0.0, min(100.0, p)))), why
+
 
 def enrich(repo: str, findings: list[dict]) -> list[dict]:
-    """Add seen_before (int), dismissed_before (bool), repo_mttr_h (float) to each finding, in place and returned.
-    One round trip for the whole list. Neutral (0/False/0.0) when ClickHouse is unavailable."""
+    """Add seen_before (int), dismissed_before (bool), repo_mttr_h (float), rule_dismiss_rate (0-1),
+    exposure_days (float), priority (0-100) and priority_reasons (list[str]) to each finding, in place and returned.
+    One round trip for the whole list. Neutral (0/False/0.0, priority from severity only) when ClickHouse is unavailable."""
     for f in findings:
         f.setdefault("seen_before", 0)
         f.setdefault("dismissed_before", False)
         f.setdefault("repo_mttr_h", 0.0)
-    fps = sorted({f.get("fingerprint") for f in findings if f.get("fingerprint")})
-    if not fps:
-        return findings
-    rows = _rows(_ENRICH, {"fps": fps, "repo": repo}, "enrich")
+        f.setdefault("rule_dismiss_rate", 0.0)
+        f.setdefault("exposure_days", 0.0)
+    pairs = sorted({(f["fingerprint"], str(f.get("rule_id") or "")) for f in findings if f.get("fingerprint")})
+    rows = None
+    if pairs:
+        rows = _rows(_ENRICH, {"fps": [p[0] for p in pairs], "rids": [p[1] for p in pairs], "repo": repo}, "enrich")
+    live = rows is not None if pairs else enabled()
     by = {r["fp"]: r for r in rows or []}
     for f in findings:
         r = by.get(f.get("fingerprint"))
@@ -235,7 +290,15 @@ def enrich(repo: str, findings: list[dict]) -> list[dict]:
             f["seen_before"] = int(r["seen_before"])
             f["dismissed_before"] = bool(r["dismissed_before"])
             f["repo_mttr_h"] = _plain(float(r["repo_mttr_h"]))
+            f["rule_dismiss_rate"] = _plain(float(r["rule_dismiss_rate"]))
+            f["exposure_days"] = _plain(float(r["exposure_days"]))
+        f["priority"], f["priority_reasons"] = _priority(f, live)
     return findings
+
+
+def rank(findings: list[dict]) -> list[dict]:
+    """New list, highest priority first (stable; findings without priority sort last)."""
+    return sorted(findings, key=lambda f: -int(f.get("priority") or 0))
 
 
 _RISING = """
@@ -356,6 +419,104 @@ def stats() -> dict:
     if not rows:
         return neutral
     return {**_clean(rows)[0], "query_ms": round((time.perf_counter() - t) * 1000, 1)}
+
+
+# ---------------------------------------------------------------- real-time rollups (clickhouse/views.sql)
+FUNNEL_STAGES = ["detected", "issue_opened", "pr_opened", "verified", "issue_closed"]
+
+# Per (repo, fingerprint): windowFunnel depth over detected -> issue -> PR -> verified -> closed, plus the first time each
+# stage was reached; GROUPING SETS gives per-repo rows and the fleet total in one round trip.
+_FUNNEL = """
+WITH ev AS (
+  SELECT repo, fingerprint, ts, toUInt8(0) AS s FROM aegis.findings
+  WHERE status = 'new' AND agent != 'backfill' AND fingerprint != '' AND ts >= now64(3) - INTERVAL {h:UInt32} HOUR
+  UNION ALL
+  SELECT repo, fingerprint, ts, toUInt8(multiIf(kind = 'issue_opened', 1, kind = 'pr_opened', 2, kind = 'verified', 3, 4))
+  FROM aegis.actions
+  WHERE kind IN ('issue_opened', 'pr_opened', 'verified', 'issue_closed') AND fingerprint != ''
+    AND ts >= now64(3) - INTERVAL {h:UInt32} HOUR),
+per AS (
+  SELECT repo, fingerprint, windowFunnel({win:UInt64})(toDateTime(ts), s = 0, s = 1, s = 2, s = 3, s = 4) AS lvl,
+         minIf(toUnixTimestamp64Milli(ts), s = 0) AS t0, minIf(toUnixTimestamp64Milli(ts), s = 1) AS t1,
+         minIf(toUnixTimestamp64Milli(ts), s = 2) AS t2, minIf(toUnixTimestamp64Milli(ts), s = 3) AS t3,
+         minIf(toUnixTimestamp64Milli(ts), s = 4) AS t4
+  FROM ev GROUP BY repo, fingerprint)
+SELECT grouping(repo) AS total, toString(repo) AS repo_name,
+       countIf(lvl >= 1) AS n0, countIf(lvl >= 2) AS n1, countIf(lvl >= 3) AS n2, countIf(lvl >= 4) AS n3,
+       countIf(lvl >= 5) AS n4,
+       medianIf(greatest(t1 - t0, 0) / 1000, lvl >= 2) AS m1, medianIf(greatest(t2 - t1, 0) / 1000, lvl >= 3) AS m2,
+       medianIf(greatest(t3 - t2, 0) / 1000, lvl >= 4) AS m3, medianIf(greatest(t4 - t3, 0) / 1000, lvl >= 5) AS m4
+FROM per GROUP BY GROUPING SETS ((repo), ()) HAVING n0 > 0 ORDER BY total DESC, n0 DESC"""
+
+
+def fix_funnel(hours: int = 24 * 30) -> dict:
+    """{stages: [{stage, n, median_s_from_prev}], per_repo: [{repo, detected, issue_opened, pr_opened, verified,
+    issue_closed}], query_ms}: how far each live finding got through remediation (windowFunnel, ordered stages within
+    the window). Backfill history is excluded. Neutral (empty lists) on failure."""
+    h = max(int(hours or 1), 1)
+    t = time.perf_counter()
+    rows = _rows(_FUNNEL, {"h": h, "win": h * 3600}, "fix_funnel") or []
+    ms = round((time.perf_counter() - t) * 1000, 1)
+    stages, per_repo = [], []
+    for r in _clean(rows):
+        if int(r["total"]) == 1:
+            stages = [{"stage": s, "n": int(r[f"n{i}"]), "median_s_from_prev": None if i == 0 else
+                       (r[f"m{i}"] if int(r[f"n{i}"]) else None)} for i, s in enumerate(FUNNEL_STAGES)]
+        else:
+            per_repo.append({"repo": r["repo_name"], **{s: int(r[f"n{i}"]) for i, s in enumerate(FUNNEL_STAGES)}})
+    return {"stages": stages, "per_repo": per_repo, "hours": h, "query_ms": ms}
+
+
+_POSTURE_FAST = """
+SELECT toString(BUCKET(day)) AS week, repo, severity, uniqMerge(fps) AS n
+FROM aegis.posture_daily
+WHERE day >= (SELECT max(day) FROM aegis.posture_daily) - {d:UInt32}
+GROUP BY week, repo, severity HAVING n > 0 ORDER BY week, repo, severity"""
+
+
+def posture_fast(days: int = 7300, bucket: str = "month") -> dict:
+    """{rows: [{week, repo, severity, n}], query_ms, ok}: same rows as posture_timeline but read from the
+    posture_daily rollup (AggregatingMergeTree fed by posture_daily_mv), so it scans ~1k pre-aggregated rows instead of
+    every finding. n = approx distinct open fingerprints (uniq). ok=False when the rollup is missing/unreachable."""
+    sql = _POSTURE_FAST.replace("BUCKET", _BUCKETS.get(bucket, "toStartOfMonth"))  # whitelisted function name
+    t = time.perf_counter()
+    rows = _rows(sql, {"d": max(int(days or 1), 1)}, "posture_fast")
+    return {"rows": _clean(rows or []), "query_ms": round((time.perf_counter() - t) * 1000, 1), "ok": rows is not None}
+
+
+# per (agent, kind): peak actions/minute in the recent window vs the median of that agent's own active minutes over the
+# trailing 7 days; any `denied` action in the window is always an anomaly. SummingMergeTree may be unmerged -> sum(n).
+_ANOMALIES = """
+WITH m AS (SELECT agent, kind, minute, sum(n) AS n FROM aegis.agent_activity_1m
+           WHERE minute >= now() - INTERVAL 7 DAY GROUP BY agent, kind, minute)
+SELECT toString(agent) AS agent, toString(kind) AS kind,
+       maxIf(n, minute >= now() - INTERVAL {m:UInt32} MINUTE) AS recent,
+       sumIf(n, minute >= now() - INTERVAL {m:UInt32} MINUTE) AS recent_total,
+       medianIf(n, minute < now() - INTERVAL {m:UInt32} MINUTE) AS baseline,
+       countIf(minute < now() - INTERVAL {m:UInt32} MINUTE) AS base_minutes
+FROM m GROUP BY agent, kind
+HAVING recent > 0 AND (kind = 'denied' OR (base_minutes >= 3 AND recent > 3 * baseline)
+                       OR (base_minutes < 3 AND recent >= {burst:UInt32}))
+ORDER BY kind = 'denied' DESC, recent DESC LIMIT 20"""
+
+
+def agent_anomalies(minutes: int = 60, burst: int = 20) -> list[dict]:
+    """[{agent, kind, recent, baseline, reason}] from agent_activity_1m: agents whose peak actions/minute in the last
+    `minutes` exceed 3x their own trailing median (active minutes, 7 days), brand-new agents bursting >= `burst`/min,
+    or any `denied` action. [] when all agents are nominal or ClickHouse is unavailable."""
+    out = []
+    for r in _clean(_rows(_ANOMALIES, {"m": max(int(minutes or 1), 1), "burst": max(int(burst), 1)},
+                          "agent_anomalies") or []):
+        rec, base = int(r["recent"]), float(r["baseline"] or 0)
+        if r["kind"] == "denied":
+            reason = f"{int(r['recent_total'])} denied action(s) in {minutes} min"
+        elif int(r["base_minutes"]) >= 3:
+            reason = f"{rec}/min vs median {base:g}/min ({rec / max(base, 1e-9):.1f}x)"
+        else:
+            reason = f"new burst: {rec}/min with no baseline"
+        out.append({"agent": r["agent"], "kind": r["kind"], "recent": rec, "baseline": round(base, 2),
+                    "recent_total": int(r["recent_total"]), "reason": reason})
+    return out
 
 
 # ---------------------------------------------------------------- CLI

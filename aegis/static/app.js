@@ -516,8 +516,31 @@
     }).catch(function () {});
   }
 
+  /* ================= fix funnel + agent watch (ClickHouse MVs) ================= */
+  var STAGE = { detected: "Detected", issue_opened: "Issue opened", pr_opened: "Fix PR opened", verified: "Re-scan verified", issue_closed: "Issue closed" };
+  function loadFunnel() {
+    return getJSON("/api/funnel?hours=720").then(function (d) {
+      var st = d.stages || [], max = st.length ? st[0].n || 1 : 1;
+      $("funnelMs").textContent = d.ch ? "· " + fmtMs(d.query_ms) : "";
+      setHTML($("funnel"), st.map(function (s) {
+        var t = s.median_s_from_prev == null ? "" : " · +" + fmtDur(s.median_s_from_prev);
+        return '<li><div class="row"><span>' + esc(STAGE[s.stage] || s.stage) + "</span><b>" + fmtInt(s.n) + esc(t) +
+          '</b></div><div class="bar"><i style="width:' + Math.max(2, 100 * s.n / max).toFixed(1) + '%"></i></div></li>';
+      }).join("") || '<li class="empty">No live findings yet</li>');
+    }).catch(function () {});
+  }
+  function loadWatch() {
+    return getJSON("/api/anomalies?minutes=60").then(function (d) {
+      var a = d.anomalies || [];
+      $("watchMs").textContent = d.ch ? "· " + fmtMs(d.query_ms) : "";
+      setHTML($("watch"), a.slice(0, 6).map(function (x) {
+        return "<li><span>" + esc(agentName(x.agent)) + "<small>" + esc(x.kind) + " · " + esc(x.reason) + '</small></span><b class="x">' + fmtInt(x.recent) + "/min</b></li>";
+      }).join("") || '<li class="empty">' + (d.ch ? "All agents nominal" : "ClickHouse offline") + "</li>");
+    }).catch(function () {});
+  }
+
   /* ================= posture area chart ================= */
-  var tl = [];
+  var tl = [], tlMs = 0;
   function drawTimeline() {
     var repo = $("repoSel").value, byM = {};
     tl.forEach(function (r) {
@@ -562,7 +585,7 @@
     box.innerHTML = svg;
     var total = months.reduce(function (s, k) { return s + (byM[k] ? byM[k].ERROR + byM[k].WARNING + byM[k].INFO : 0); }, 0);
     $("tlBig").textContent = fmtInt(total);
-    $("tlNote").textContent = keys[0].slice(0, 4) + " – " + end.slice(0, 4) + " · by commit date";
+    $("tlNote").textContent = keys[0].slice(0, 4) + " – " + end.slice(0, 4) + " · by commit date" + (tlMs ? " · " + fmtMs(tlMs) : "");
     box.onmousemove = function (ev) {
       var r = box.getBoundingClientRect(), i = Math.round((ev.clientX - r.left) / r.width * (months.length - 1));
       i = Math.max(0, Math.min(months.length - 1, i));
@@ -575,6 +598,7 @@
   }
   function loadTimeline() {
     return getJSON("/api/timeline?weeks=1100&bucket=month").then(function (d) {
+      tlMs = d.ms || 0;
       var sig = JSON.stringify(d.rows || []);
       if (sig === loadTimeline._sig) return;
       loadTimeline._sig = sig;
@@ -660,6 +684,8 @@
   every(loadBreakdown, 30000);
   every(loadInsights, 15000);
   every(loadTimeline, 60000);
+  every(loadFunnel, 15000);
+  every(loadWatch, 10000);
   every(loadPatrol, 1500);
   every(loadGuild, 4000);
   every(loadHandoffs, 5000);
