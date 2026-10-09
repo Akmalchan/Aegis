@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from . import config, scanner, state, enrich, ch, supply_chain, analyst_guild, analyst_openai
 from . import dashboard
-from . import github_status, verify  # stream V: commit status setter + fix verification
+from . import github_status, verify, fix  # stream V: commit status setter + fix verification + span patcher
 
 app = FastAPI(title="AEGIS Scanner", version="1.0.0")
 dashboard.mount(app)
@@ -30,6 +30,7 @@ def require_key(x_aegis_key: str | None = Header(default=None)) -> None:
 
 app.include_router(verify.router, dependencies=[Depends(require_key)])
 app.include_router(github_status.router, dependencies=[Depends(require_key)])
+app.include_router(fix.router, dependencies=[Depends(require_key)])
 
 
 class ScanDiffIn(BaseModel):

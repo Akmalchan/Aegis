@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AEGIS Scanner
-  version: 1.0.0
+  version: 1.2.0
   description: Semgrep-as-a-service for the AEGIS agent fleet. Guild imports this spec as a custom integration.
 servers:
   - url: https://REPLACE-WITH-TUNNEL.trycloudflare.com
@@ -65,6 +65,23 @@ components:
           items: { $ref: '#/components/schemas/VerifyLayer' }
         summary: { type: string, description: "e.g. finding gone at 1a2b3c4; tests: 14 passed; regression test fails on base / passes on fix" }
         ms: { type: integer }
+    FixResult:
+      type: object
+      required: [ok, replacement, new_content, diff, explanation, model, span, ms]
+      properties:
+        ok: { type: boolean, description: "false => do not commit; read error" }
+        replacement: { type: string, description: text that replaced the span }
+        new_content: { type: string, description: "full patched file; write it as-is with github create_or_update_file_contents (pass the file's sha)" }
+        diff: { type: string, description: "unified diff a/<path> -> b/<path>; paste into the PR body" }
+        explanation: { type: string }
+        model: { type: string, description: "semgrep-rule-fix when the rule's fix was applied verbatim, else the OpenAI model name" }
+        span:
+          type: object
+          properties:
+            start_line: { type: integer }
+            end_line: { type: integer }
+        ms: { type: integer }
+        error: { type: string }
 security:
   - apiKey: []
 paths:
@@ -198,6 +215,36 @@ paths:
               schema: { $ref: '#/components/schemas/VerifyResult' }
         '404':
           description: base_sha or head_sha cannot be checked out
+  /fix:
+    post:
+      operationId: fix_code
+      summary: Write the minimal patch for ONE finding and return the full patched file + unified diff. Pass the finding's path/start_line/end_line/lines/rule_id/message and, when present, its fix and fix_hint. If the finding carries `fix` it is applied verbatim (deterministic); otherwise a model writes a replacement for exactly the flagged span following the remediation playbook (parameterised SQL, secrets to os.environ, shell=True to list args, yaml.safe_load). Everything outside the span is guaranteed byte-identical (at most one `import X` line is added). Commit new_content on branch aegis/fix-<fingerprint>, then call verify_fix. ok=false means do not commit, open an Issue instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, sha, path, start_line, end_line, lines, rule_id, message, agent]
+              properties:
+                repo: { type: string, description: owner/name }
+                sha: { type: string, description: commit the finding was reported at (head of the push) }
+                path: { type: string, description: file path from the finding }
+                start_line: { type: integer, description: 1-based, from the finding }
+                end_line: { type: integer, description: 1-based inclusive, from the finding }
+                lines: { type: string, description: the finding's `lines` field verbatim; used to locate the span exactly }
+                rule_id: { type: string }
+                message: { type: string, description: the finding's message }
+                fix: { type: string, description: "the finding's `fix` field if present (Semgrep rule fix). Pass it through unchanged." }
+                fix_hint: { type: string, description: the finding's fix_hint if present }
+                cwe: { type: string, description: e.g. CWE-89 }
+                agent: { type: string, description: calling agent name }
+      responses:
+        '200':
+          description: patch proposal; check ok before committing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FixResult' }
   /insights:
     get:
       operationId: fleet_insights
