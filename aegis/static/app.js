@@ -318,18 +318,46 @@
     else if (e.kind === "verified") toast(false, "Verified", who);
     else if (e.kind === "denied") toast(true, "Blocked", who);
   }
+  /* ---- fleet chat: every agent action as a message, newest at the bottom ---- */
+  var AV = { "sentinel-01": "#0a0a0a", "sentinel-02": "#3a3a3a", "sentinel-03": "#6b6b6b", warden: "#ff4a3d", reporter: "#2f6fed", onboarder: "#2fbf71" };
+  function chatText(e) {
+    var r = "<b>" + esc(short(e.repo)) + "</b>", ref = /^\d+$/.test(e.ref || "") ? " #" + esc(e.ref) : "";
+    switch (e.kind) {
+      case "scan": return e.verdict === "unsafe"
+        ? "Push to " + r + " is unsafe. " + e.n_findings + " finding" + (e.n_findings === 1 ? "" : "s") + " in " + fmtMs(e.total_ms) + "."
+        : "Scanned " + r + ". Clean in " + fmtMs(e.total_ms) + ".";
+      case "issue_opened": return "Opened Issue" + ref + " on " + r + ".";
+      case "issue_closed": return "Closed Issue" + ref + " on " + r + ". The finding is gone.";
+      case "pr_opened": return "Proposed a fix for " + r + ": PR" + ref + ".";
+      case "pr_reviewed": return "Reviewed PR" + ref + " on " + r + ".";
+      case "verified": return "Re-scanned the fix on " + r + ". Verified.";
+      case "verify_failed": return "The fix on " + r + " didn't hold. Rejected it.";
+      case "status_set": return "Set the commit status on " + r + ".";
+      case "dismissed": return "Marked a finding on " + r + " as a false positive.";
+      case "denied": return "Tried to touch " + r + ". Blocked by policy.";
+      default: var k = String(e.kind).replace(/_/g, " "); return esc(k.charAt(0).toUpperCase() + k.slice(1)) + " on " + r + ref + ".";
+    }
+  }
+  function renderChat(events, fresh) {
+    var box = $("feed"), list = events.slice(0, 40).reverse();
+    var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    var changed = setHTML(box, list.map(function (e) {
+      var who = agentName(e.agent).replace("Sentinel ", "Sentinel "), key = String(e.agent || "").replace(/^aegis-/, "");
+      var init = /sentinel-(\d+)/.test(key) ? "S" + key.slice(-1) : key.charAt(0).toUpperCase();
+      var k = kindOf(e);
+      return '<li class="msg' + (fresh.indexOf(e) >= 0 ? " new" : "") + '"><span class="av" style="background:' + (AV[key] || "#999") + '">' + esc(init) +
+        '</span><div class="mb"><div class="mh"><b>' + esc(who) + '</b><span class="tag ' + k.c + '">' + esc(k.l) + '</span><time>' +
+        clock(e.ts) + '</time></div><p>' + chatText(e) + "</p></div></li>";
+    }).join("") || '<li class="empty">Waiting for the first push</li>');
+    if (changed && (atBottom || fresh.length || !box._seen)) { box.scrollTop = box.scrollHeight; box._seen = true; }
+    $("chatCount").textContent = events.length + " recent";
+  }
   function loadEvents() {
     return getJSON("/api/events?n=80").then(function (d) {
       var events = (d.events || []).filter(function (e) { return e.repo && !/^local:|selftest/.test(e.repo); });
       var fresh = lastTs == null ? [] : events.filter(function (e) { return e.ts > lastTs; });
       if (events.length) lastTs = Math.max(lastTs || 0, events[0].ts);
-      setHTML($("feed"), events.slice(0, 30).map(function (e) {
-        var k = kindOf(e), bits = [agentName(e.agent), short(e.repo)];
-        if (e.kind === "scan") bits.push(e.n_findings + " findings", fmtMs(e.total_ms));
-        else if (/^\d+$/.test(e.ref || "")) bits.push("#" + e.ref);
-        return '<li class="' + (fresh.indexOf(e) >= 0 ? "new" : "") + '"><span class="t">' + ago(e.ts) + '</span><span class="k ' + k.c + '">' +
-          esc(k.l) + '</span><span class="d">' + esc(bits.join(" · ")) + "</span></li>";
-      }).join("") || '<li><span class="empty">Waiting for the first push</span></li>');
+      renderChat(events, fresh);
       paintMap(events);
       paintIncident(events);
       if (fresh.length) {

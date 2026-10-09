@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://api.fontshare.com">
 <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 <body>
 
@@ -127,7 +127,10 @@
         <div class="card"><div class="card-k">What patrol is finding</div><ul class="hbars" id="pRules"><li class="empty">Warming up</li></ul></div>
       </div>
     </div>
-    <div class="card feed-card"><div class="card-k">Fleet actions</div><ul class="feed" id="feed"></ul></div>
+    <div class="card chat-card">
+      <div class="chat-head"><span class="pill-y"><i class="live"></i>Fleet chat</span><span class="hp-sub" id="chatCount"></span></div>
+      <ol class="chat" id="feed"></ol>
+    </div>
   </section>
 </section>
 
@@ -200,6 +203,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-k" id="toastK"></span><span class="toast-t" id="toastT"></span></div>
 <div class="tip" id="tip" hidden></div>
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=9"></script>
 </body>
 </html>
