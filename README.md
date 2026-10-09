@@ -59,7 +59,8 @@ Guild's credential proxy injects the API key.
 ```bash
 uv sync
 cp .env.example .env                                   # GITHUB_TOKEN, SCANNER_KEY, CLICKHOUSE_*, OPENAI_API_KEY, GUILD_*
-docker compose -f clickhouse/docker-compose.yml up -d  # local ClickHouse (or point CLICKHOUSE_HOST at ClickHouse Cloud)
+# ClickHouse Cloud: put CLICKHOUSE_HOST/PORT=8443/PASSWORD/SECURE=1 in .env (see .env.example), or run locally:
+docker compose -f clickhouse/docker-compose.yml up -d
 uv run python -m aegis.ch selftest                     # creates the schema, round-trips one row of each table
 uv run python clickhouse/backfill.py                   # Semgrep over the git history of the fleet → ClickHouse
 uv run python -m aegis.ch stats                        # row counts
