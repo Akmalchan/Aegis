@@ -30,6 +30,10 @@ components:
         seen_before: { type: integer, description: times this fingerprint was seen across the fleet (ClickHouse) }
         dismissed_before: { type: boolean, description: triage already marked this fingerprint a false positive }
         repo_mttr_h: { type: number, description: mean time to remediate in this repo, hours }
+        introduced_sha: { type: string, description: "exposure clock: oldest commit that put this code there (git blame + ClickHouse history)" }
+        introduced_at: { type: string, description: "exposure clock: when that commit was authored (ISO 8601, UTC)" }
+        introduced_by: { type: string, description: "exposure clock: author of that commit" }
+        exposed_days: { type: integer, description: "exposure clock: days this vulnerability has been live; 0 = introduced by the push being scanned (caught on day 0). Put it in the Issue: 'Exposed for N days since <sha>'." }
         taint_rule_id: { type: string, description: "taint rule that also matched this line (its trace is attached) when a syntactic rule's id/fingerprint was kept" }
         trace_text: { type: string, description: "Semgrep's proven dataflow (--dataflow-traces) as one sentence: source -> propagators -> sink with file:line; only for taint rules. Quote it, do not infer the flow yourself." }
         dataflow_trace:
@@ -496,3 +500,27 @@ paths:
                   only_local_lines: { type: array, items: { type: integer } }
                   only_hosted_lines: { type: array, items: { type: integer } }
                   ms: { type: integer }
+  /exposure:
+    get:
+      operationId: fleet_exposure
+      summary: "Exposure clock for the fleet, from ClickHouse commit history: how long vulnerabilities lived before someone fixed them (median_days_to_fix, p90_days_to_fix), how long the still-open ones have been live (median_open_days, max_open_days), per repo, and the longest-exposed open ERROR findings. Use it in reports: 'without AEGIS, bugs here lived a median of N days; AEGIS catches them on day 0'."
+      parameters:
+        - name: top
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: exposure stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fixed: { type: integer }
+                  open: { type: integer }
+                  median_days_to_fix: { type: number }
+                  p90_days_to_fix: { type: number }
+                  median_open_days: { type: number }
+                  max_open_days: { type: integer }
+                  by_repo: { type: array, items: { type: object } }
+                  longest_open: { type: array, items: { type: object } }

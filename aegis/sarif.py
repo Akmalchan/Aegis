@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from . import ch, config, scanner, state
+from . import ch, config, exposure, scanner, state
 
 router = APIRouter()
 API = "https://api.github.com"
@@ -30,7 +30,7 @@ def enabled() -> bool:
 
 # ------------------------------------------------------------------ build
 
-def build(workdir: Path, use_registry: bool = True) -> dict:
+def build(workdir: Path, use_registry: bool = True, repo: str = "") -> dict:
     """Full Semgrep scan of `workdir` as SARIF 2.1.0 holding exactly the findings the agents act on.
 
     Two inputs, merged: Semgrep's native SARIF (rule docs, CWE/OWASP tags, help links) and scanner.scan() (our
@@ -48,9 +48,11 @@ def build(workdir: Path, use_registry: bool = True) -> dict:
         sarif = {}
     if not sarif.get("runs"):
         if use_registry:
-            return build(workdir, use_registry=False)
+            return build(workdir, use_registry=False, repo=repo)
         raise RuntimeError(f"semgrep produced no SARIF (exit {proc.returncode}): {proc.stderr[-300:]}")
     findings, _ = scanner.scan(workdir, use_registry=use_registry)
+    if repo:
+        exposure.apply(workdir, repo, findings)  # 'Exposed for N days' in the alert text
     return _merge(sarif, findings)
 
 
@@ -90,12 +92,15 @@ def _merge(sarif: dict, findings: list[dict]) -> dict:
             text = res.get("message", {}).get("text") or f["message"]
             if f.get("trace_text"):
                 text += "\n\n" + f["trace_text"]
+            if exposure.label(f):
+                text += "\n\nAEGIS exposure clock: " + exposure.label(f)
             if f.get("fix_hint"):
                 text += "\n\nAEGIS fix: " + f["fix_hint"]
             res["message"] = {"text": text}
             if f.get("dataflow_trace"):
                 res["codeFlows"] = _code_flow(f["dataflow_trace"])
-            res.setdefault("properties", {}).update(aegis_fingerprint=f["fingerprint"], cwe=f.get("cwe", ""))
+            res.setdefault("properties", {}).update(aegis_fingerprint=f["fingerprint"], cwe=f.get("cwe", ""),
+                                                   **{k: f[k] for k in ("introduced_sha", "introduced_at", "exposed_days") if k in f})
             results.append(res)
         run["results"] = results
         used = {r["ruleId"] for r in results}
@@ -146,7 +151,7 @@ def upload(repo: str, sha: str = "HEAD", ref: str = "", agent: str = "aegis", wa
     with scanner.repo_lock(repo):
         workdir = scanner.checkout(repo, sha, config.GITHUB_TOKEN)
         real_sha = scanner.head_sha(workdir)
-        sarif = build(workdir)
+        sarif = build(workdir, repo=repo)
     n = count_results(sarif)
     ref = ref or default_ref(repo)
     payload = {"commit_sha": real_sha, "ref": ref, "tool_name": TOOL_NAME,
