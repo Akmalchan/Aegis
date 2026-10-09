@@ -1,18 +1,28 @@
 {
-  "name": "aegis-triage",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@guildai/__OWNER__~aegis-triage",
+  "version": "1.0.0",
+  "author": "Guild.ai",
   "type": "module",
+  "exports": {
+    ".": "./dist/agent.js"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "build": "npm run build:compile && npm run build:copy",
+    "build:compile": "tsc --build",
+    "build:copy": "cp *.md dist/",
+    "bundle": "npm run build && esbuild dist/agent.js --bundle --loader:.md=text --platform=node --format=esm --external:zod --external:@guildai/agents-sdk | gzip | base64 > agent.js.gz",
     "typecheck:offline": "../_shims/node_modules/.bin/tsc --noEmit -p tsconfig.check.json"
   },
   "dependencies": {
-    "@guildai/agents-sdk": "latest",
-    "@guildai-services/guildai~github": "latest",
+    "@guildai-services/guildai~github": "*",
+    "@guildai/agents-sdk": "*",
     "zod": "~4.3.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
-  }
+    "esbuild": "^0.28.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "./dist"
+  ]
 }

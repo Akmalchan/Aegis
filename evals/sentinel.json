@@ -1,6 +1,6 @@
 {
   "name": "aegis-sentinel push handling",
-  "description": "Clean push must end in a green status and no issue; vulnerable push must end in a red status plus an AEGIS issue. Shas: `before` is the real HEAD of vincivv/snipbox (168f7e8e); the `after` shas are placeholders until demo/clean and demo/vuln branches are pushed (replace with `git -C ../snipbox rev-parse demo/clean demo/vuln`).",
+  "description": "Clean push must end in a green commit comment and no issue; vulnerable push must end in a red commit comment plus an AEGIS issue. The GitHub integration (@guildai-services/guildai~github 2.0.3) has no commit-status operation, so the sentinel marks commits with github_repos_create_commit_comment (✅ / ❌ / ⚠️ + 'AEGIS / security-check'). Shas: `before` is the real HEAD of vincivv/snipbox (168f7e8e); the `after` shas are placeholders until demo/clean and demo/vuln branches are pushed (replace with `git -C ../snipbox rev-parse demo/clean demo/vuln`).",
   "epochs": 1,
   "samples": [
     {
@@ -15,18 +15,27 @@
         "repository": {
           "name": "snipbox",
           "full_name": "vincivv/snipbox",
-          "owner": { "login": "vincivv", "name": "vincivv" },
+          "owner": {
+            "login": "vincivv",
+            "name": "vincivv"
+          },
           "default_branch": "main",
           "html_url": "https://github.com/vincivv/snipbox"
         },
-        "pusher": { "name": "vincivv" },
-        "sender": { "login": "vincivv" },
+        "pusher": {
+          "name": "vincivv"
+        },
+        "sender": {
+          "login": "vincivv"
+        },
         "head_commit": {
           "id": "b7e2d9c4a1f0e3b6c5d8a9f2e1b4c7d0a3f6e9b2",
           "message": "docs: clarify CLI usage in README",
           "added": [],
           "removed": [],
-          "modified": ["README.md"]
+          "modified": [
+            "README.md"
+          ]
         },
         "commits": [
           {
@@ -34,7 +43,9 @@
             "message": "docs: clarify CLI usage in README",
             "added": [],
             "removed": [],
-            "modified": ["README.md"]
+            "modified": [
+              "README.md"
+            ]
           }
         ]
       }
@@ -51,18 +62,29 @@
         "repository": {
           "name": "snipbox",
           "full_name": "vincivv/snipbox",
-          "owner": { "login": "vincivv", "name": "vincivv" },
+          "owner": {
+            "login": "vincivv",
+            "name": "vincivv"
+          },
           "default_branch": "main",
           "html_url": "https://github.com/vincivv/snipbox"
         },
-        "pusher": { "name": "vincivv" },
-        "sender": { "login": "vincivv" },
+        "pusher": {
+          "name": "vincivv"
+        },
+        "sender": {
+          "login": "vincivv"
+        },
         "head_commit": {
           "id": "a3f1c2d4e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0",
           "message": "feat: full-text search endpoint + debug token for local testing",
           "added": [],
           "removed": [],
-          "modified": ["snipbox/api.py", "snipbox/db.py", "snipbox/config.py"]
+          "modified": [
+            "snipbox/api.py",
+            "snipbox/db.py",
+            "snipbox/config.py"
+          ]
         },
         "commits": [
           {
@@ -70,25 +92,49 @@
             "message": "feat: full-text search endpoint + debug token for local testing",
             "added": [],
             "removed": [],
-            "modified": ["snipbox/api.py", "snipbox/db.py", "snipbox/config.py"]
+            "modified": [
+              "snipbox/api.py",
+              "snipbox/db.py",
+              "snipbox/config.py"
+            ]
           }
         ]
       }
     }
   ],
   "checks": [
-    { "type": "hasToolCall", "tool": "aegis_scanner_scan_diff" },
-    { "type": "hasToolCall", "tool": "github_repos_create_commit_status" },
+    {
+      "type": "hasToolCall",
+      "tool": "aegis_scanner_scan_diff"
+    },
+    {
+      "type": "hasToolCall",
+      "tool": "github_repos_create_commit_comment"
+    },
     {
       "type": "toolCallContains",
-      "tool": "github_repos_create_commit_status",
-      "arguments": { "context": "AEGIS / security-check" }
+      "tool": "github_repos_create_commit_comment",
+      "arguments": {
+        "owner": "vincivv",
+        "repo": "snipbox"
+      }
+    },
+    {
+      "type": "toolCallContains",
+      "tool": "aegis_scanner_scan_diff",
+      "arguments": {
+        "repo": "vincivv/snipbox",
+        "base_sha": "168f7e8e52c9f84163b72b6db9131fa7e48f70a3"
+      }
     },
     {
       "type": "llmJudge",
       "name": "push_outcome",
-      "rubric": "Judge the sample by its name. For push_clean the agent must not call github_issues_create and must set a commit status with state success. For push_vuln the agent must call github_issues_create at least once with labels including aegis and a body whose last line is an HTML comment of the form <!-- AEGIS-FP: <fingerprint> -->, and must set a commit status with state failure. Pass only if the behaviour matches the sample.",
-      "llmPreferences": ["OPENAI", "ANTHROPIC"]
+      "rubric": "Judge the trial by its sample name. For push_clean the agent must not call github_issues_create and must post exactly one github_repos_create_commit_comment whose body starts with ✅ and contains 'AEGIS / security-check'. For push_vuln the agent must call github_issues_create at least once with labels including 'aegis' and a body whose last line is an HTML comment of the form <!-- AEGIS-FP: <fingerprint> -->, and must post a github_repos_create_commit_comment whose body starts with ❌. In both cases every GitHub write must be followed by an aegis_scanner_record_action call. Pass only if the behaviour matches the sample.",
+      "llmPreferences": [
+        "OPENAI",
+        "ANTHROPIC"
+      ]
     }
   ]
 }

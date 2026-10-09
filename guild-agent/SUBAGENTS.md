@@ -1,21 +1,87 @@
-# How sentinel delegates to the specialists
+# Sub-agents for TypeScript Guild agents (verified 2026-10-09)
 
-Sentinel keeps the loop (scan, commit status, bookkeeping); the three specialists do the slow, judgement-heavy parts.
-Call order per push after `aegis_scanner_scan_diff` returns `verdict: unsafe`:
+Sources checked: `@guildai/agents-sdk` 0.7.8 d.ts (`dist/llm-agent.d.ts`, `dist/services/utils.d.ts`),
+`@guildai/cli` 0.27.1 docs (`docs/skills/agent-dev.md` "Calling Another Agent",
+`docs/skills/agent-dev-references/integrations.md` "Agent-to-agent delegation"), docs.guild.ai/guide/guild-yaml,
+and the published agent package `@guildai/guildai~sys-experimental-coding` (exports `.` and `./tool`).
 
-1. For each finding not already open (no `<!-- AEGIS-FP: fp -->` in an open issue) and not `dismissed_before`:
-   `aegis_triage({repo, sha: after, agent, finding})` -> JSON `{confirmed, confidence, severity, ...}`.
-2. If `confirmed && confidence >= 0.6`: `aegis_remediator({repo, sha: after, agent, finding, triage})` -> `{issue_number, pr_number}`.
-   Else: `aegis_scanner_record_action(kind: "dismissed", fingerprint)` and no issue.
+## Verdict: supported, wired in code, not in guild.yaml
+
+- `guild.yaml` (`sub_agents:`) is for Goose / Native / OpenClaw / LangGraph agents only. The reference says it
+  outright: "TypeScript agents don't use guild.yaml. They declare tools in code." The file
+  `sentinel/guild.yaml.sub_agents.snippet` is therefore wrong for our agent type and must not be pasted.
+- There is no `subAgents` / `agents` option on `llmAgent`. The 0.7.8 `Params` type has: `description`, `tools`,
+  `systemPrompt`, `mode`, `multiTurnStopBehavior`, `toolCallResponseStream`, `llmPreferences`,
+  `useWorkspaceAgents`, `inputSchema`, `inputTemplate` (`identifier` is deprecated).
+- A sub-agent is just a tool. Every **published** agent gets an npm package `@guildai/<owner>~<name>` on the Guild
+  registry with a `./tool` sub-package (`exports: {".": "./dist/agent.js", "./tool": "./dist/tooldef.js"}`),
+  auto-generated at build time with `guildAgentTool({description, inputSchema, outputSchema, calls})`. It inherits the
+  sub-agent's `inputSchema`, so the caller's tool call is typed with our `{repo, sha, agent, finding}` objects.
+  The output of an `llmAgent` is always `{type: "text", text: string}`; our sub-agents put JSON in `text`.
+- The caller adds the package as a dependency and spreads the default export into `tools`. The tool name the LLM
+  sees is the key you choose:
+
+```ts
+import triageTool from "@guildai/__OWNER__~aegis-triage/tool"
+import remediatorTool from "@guildai/__OWNER__~aegis-remediator/tool"
+import verifierTool from "@guildai/__OWNER__~aegis-verifier/tool"
+
+const tools = { ...existingTools, aegis_triage: triageTool, aegis_remediator: remediatorTool, aegis_verifier: verifierTool }
+```
+
+- Dynamic alternative: `useWorkspaceAgents: true` makes every agent installed in the workspace callable without a
+  dependency. Non-deterministic (names, versions), so the explicit `/tool` import is the right way for the sentinel.
+- Order of operations: the sub-agents must be published (`guild agent save --message ... --wait --publish`) before
+  the sentinel's `npm install` can resolve `@guildai/<owner>~aegis-triage`. A draft version is not enough for the
+  registry (checked after `guild agent save --wait` without `--publish`: see the R3 report; if `npm view` shows the
+  package only after publish, publish first). `fleet/deploy.sh` must then run
+  `npm install --save @guildai/$OWNER~aegis-triage @guildai/$OWNER~aegis-remediator @guildai/$OWNER~aegis-verifier`
+  in the sentinel build dir (it currently installs only the SDK and the scanner integration; package.json is
+  excluded from the rsync, so the dependency has to be added there).
+- A public agent cannot depend on a private sub-agent (docs.guild.ai/guide/guild-yaml "Access and permissions"). Keep
+  the sentinel and the three specialists at the same visibility.
+
+The exact edits for `sentinel/agent.ts` are in `SUBAGENTS.patch.md` (R1 owns that file).
+
+## Call protocol (what the sentinel prompt must say)
+
+After `aegis_scanner_scan_diff` returns `verdict: unsafe`:
+
+1. For each finding not already open (no `<!-- AEGIS-FP: fp -->` in an open `aegis` issue) and not
+   `dismissed_before`: `aegis_triage({repo, sha: HEAD, agent: NAME, finding})`. The result is
+   `{type: "text", text: "<json>"}`; parse `text` as `{confirmed, confidence, severity, cwe, title, impact,
+   explanation, fix_suggestion}`.
+2. If `confirmed && confidence >= 0.6`: `aegis_remediator({repo, sha: HEAD, agent: NAME, finding, triage})` →
+   text JSON `{issue_number, pr_number, notes}`. The remediator records `issue_opened` / `pr_opened` itself.
+   Else: `aegis_scanner_record_action({agent: NAME, repo, kind: "dismissed", ref: fingerprint, fingerprint})`
+   and no issue.
 3. On `verdict: safe`, for each open AEGIS issue whose fingerprint is absent from `findings`:
-   `aegis_verifier({repo, sha: after, agent, issue_number, fingerprint, path, rule_id})` -> `{closed: true}`.
+   `aegis_verifier({repo, sha: HEAD, agent: NAME, issue_number, fingerprint, path, rule_id})` → text JSON
+   `{closed, issue_number, notes}`. The verifier records `issue_closed` itself.
 
-Tool names: sub-agents declared in `guild.yaml` surface as tools of toolType "agent". The docs do not state the
-generated name; we assume the agent name in snake case (`aegis_triage`, `aegis_remediator`, `aegis_verifier`).
-Verify with `guild agent capabilities <owner>~aegis-sentinel-01` after publish and fix the names in the sentinel prompt.
-Caveat from docs.guild.ai/guide/guild-yaml: `sub_agents` is listed for Goose, Native, OpenClaw and LangGraph agents;
-TypeScript agents are not named there, so delegation may not resolve at all for sentinel.
+Pass the finding object exactly as the scanner returned it; the sub-agent input schemas reject missing required
+fields (`rule_id, path, start_line, end_line, lines, message, severity, fingerprint`).
 
-Fallback (40-minute rule from docs/streams/A.md): if the agent tools do not show up or calls fail, sentinel runs the
-same three procedures inline (its prompt already contains the Issue template, PR steps and close comment); the
-specialists stay published for the warden/demo and for the eval of each piece in isolation.
+## Fallback
+
+If the sub-agent packages cannot be installed in time (not published, visibility mismatch, registry resolution
+error in the server build), the sentinel keeps doing triage / remediation / verification inline. Its prompt already
+contains the Issue template, the PR steps and the close comment, so nothing is lost except the per-piece evals and
+the parallel fan-out. The specialists stay published for the warden demo and for isolated evals.
+
+## Things learned on the way (affect R1 too)
+
+- Local `npm install` with npm < 11.7 resolves `@guildai/agents-sdk@*` to **0.1.0** (every newer version declares
+  `engines.npm >= 11.7`), and 0.1.0 has no `inputSchema` / `inputTemplate` / `useWorkspaceAgents`. The server build
+  (npm 11.12) gets 0.7.8. Install `@guildai/agents-sdk@latest` locally so `tsc` checks the real API; the lock file then
+  pins 0.7.8 for the server as well. `fleet/deploy.sh` already installs `^0.7.8`.
+- The `inputTemplate` renderer is NOT Mustache. `dist/llm-agent.js` `render()` is a plain
+  `{{dotted.path}}` replacer: strings verbatim, numbers as text, anything else via `JSON.stringify`, no escaping,
+  no sections. So `{{finding}}` renders the whole object as JSON (good), but `{{#commits}}...{{/commits}}` and
+  triple-brace `{{{x}}}` are not understood: `{{#commits}}` becomes an empty string plus the literal body text, and
+  `{{{head_commit.message}}}` leaves a stray `}` and renders empty. The sentinel template currently uses both.
+- `llmPreferences` are strict in 0.7.8: "if none can be used under the account's configuration, LLM calls fail rather
+  than falling back to the session default". The four specialists omit it and run on the session default.
+- `@guildai-services/guildai~email` does not exist on the registry (404; also no mail/sendgrid/resend/smtp/gmail).
+  `@guildai-services/guildai~slack` 2.1.1 exists if a chat alert is wanted later.
+- `aegis_scanner_fleet_insights` takes no parameters (`z.object({})`); the response arrays are optional and untyped.
