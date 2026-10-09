@@ -83,6 +83,21 @@ From real GitHub webhooks through Guild on `andriidrok1/aegis-demo-target` ([`do
 | `verify_fix` | static 3.8 to 8 s, targeted test ~0.2 s |
 | Policy deny on a foreign repo | refused by the proxy, `http_status_code: null` |
 
+## Run it yourself: the `aegis` CLI
+
+Same engine and rules as the fleet, on your laptop or in CI. No server, no Guild, no accounts. Needs `semgrep` on PATH (`pipx install semgrep`).
+
+```bash
+pipx install git+https://github.com/Akmalchan/Aegis
+aegis scan                         # this repo; exit 1 if unsafe, so CI fails the build
+aegis scan --diff main             # only what this branch introduced, like a push
+aegis scan owner/repo --sarif out.sarif   # any GitHub repo + SARIF for code scanning
+aegis fleet                        # fleet numbers + exposure clock (needs a running scanner)
+aegis watch                        # live feed of the agents
+```
+
+Every finding shows severity, CWE, the matched line, the taint path (source → sink), the exposure clock (how long it has been live) and Semgrep's autofix or fix hint. `--json` for machines, `--fail-on error|warning|never` for CI.
+
 ## Run it
 
 ```bash
