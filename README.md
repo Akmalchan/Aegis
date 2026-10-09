@@ -130,6 +130,6 @@ docs/           LIVE-RUN.md, HOW-WE-KNOW.md, SEMGREP-DEEP.md, SELF-AUDIT.md, STR
 
 ## Team
 
-- Andrii Drok, Guild agents, fleet, scanner (`<email>`)
-- Akmal Shovkatov, `<role>` (`<email>`)
-- vincivv, ClickHouse, data, demo targets (`<email>`)
+- Andrii Drok, Guild agents, fleet, scanner (`andriidrok01@gmail.com`)
+- Akmal Shovkatov, `Frontend` (`akmalshavkatov7@gmail.com`)
+- vincivv, ClickHouse, data, demo targets (`dialmair.7@gmail.com`)
