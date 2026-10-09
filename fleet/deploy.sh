@@ -101,8 +101,8 @@ build_agent() {  # $1 agent name, $2 template dir
     # Sentinel only: the sub-agents are PUBLISHED Guild agents, each an npm package @guildai/<owner>~<name> with a
     # ./tool export (guild-agent/SUBAGENTS.md). They must be published before this install can resolve them.
     if [[ "$src" == "$TEMPLATE" ]]; then
-      show "(cd $dir && npm install --silent --save @guildai/$OWNER~aegis-triage@^1.0.4 @guildai/$OWNER~aegis-remediator@^1.0.4 @guildai/$OWNER~aegis-verifier@^1.0.4)"
-      [[ "$DRY" == "1" ]] || (cd "$dir" && npm install --silent --save "@guildai/$OWNER~aegis-triage@^1.0.4" "@guildai/$OWNER~aegis-remediator@^1.0.4" "@guildai/$OWNER~aegis-verifier@^1.0.4")
+      show "(cd $dir && npm install --silent --save @guildai/$OWNER~aegis-triage@^1.0.5 @guildai/$OWNER~aegis-remediator@^1.0.5 @guildai/$OWNER~aegis-verifier@^1.0.5)"
+      [[ "$DRY" == "1" ]] || (cd "$dir" && npm install --silent --save "@guildai/$OWNER~aegis-triage@^1.0.5" "@guildai/$OWNER~aegis-remediator@^1.0.5" "@guildai/$OWNER~aegis-verifier@^1.0.5")
     fi
   fi
   show "(cd $dir && guild agent save --message 'deploy $(date +%H:%M)' --publish)"

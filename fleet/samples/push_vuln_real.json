@@ -1,0 +1,36 @@
+{
+  "ref": "refs/heads/verify-test/vuln",
+  "before": "88e1091bfde8d42a41ce1bdd59950a9d2c976cc1",
+  "after": "0ad1fc161d28aaa1dd4ad5bc5bcc37ea16c7ebea",
+  "created": false,
+  "deleted": false,
+  "forced": false,
+  "compare": "https://github.com/andriidrok1/aegis-demo-target/compare/88e1091bfde8...0ad1fc161d28",
+  "repository": {
+    "id": 1412326330,
+    "node_id": "R_kgDOVC5jug",
+    "name": "aegis-demo-target",
+    "full_name": "andriidrok1/aegis-demo-target",
+    "private": false,
+    "owner": { "name": "andriidrok1", "login": "andriidrok1", "id": 221949592, "type": "User" },
+    "html_url": "https://github.com/andriidrok1/aegis-demo-target",
+    "clone_url": "https://github.com/andriidrok1/aegis-demo-target.git",
+    "default_branch": "main",
+    "language": "Python",
+    "visibility": "public"
+  },
+  "pusher": { "name": "andriidrok1", "email": "andriidrok1@users.noreply.github.com" },
+  "sender": { "login": "andriidrok1", "id": 221949592, "type": "User" },
+  "head_commit": {
+    "id": "0ad1fc161d28aaa1dd4ad5bc5bcc37ea16c7ebea",
+    "message": "verify-test: introduce vulnerable change",
+    "timestamp": "2026-10-09T13:00:00-07:00",
+    "url": "https://github.com/andriidrok1/aegis-demo-target/commit/0ad1fc161d28aaa1dd4ad5bc5bcc37ea16c7ebea",
+    "author": { "name": "andriidrok1", "email": "andriidrok1@users.noreply.github.com", "username": "andriidrok1" },
+    "committer": { "name": "andriidrok1", "email": "andriidrok1@users.noreply.github.com", "username": "andriidrok1" },
+    "added": [],
+    "removed": [],
+    "modified": []
+  },
+  "commits": []
+}

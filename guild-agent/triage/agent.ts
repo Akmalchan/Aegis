@@ -20,6 +20,7 @@ const Finding = z.object({
   cwe: z.string().optional(),
   fingerprint: z.string(),
   fix: z.string().optional(),
+  fix_hint: z.string().optional(),
   seen_before: z.number().optional(),
   dismissed_before: z.boolean().optional(),
   repo_mttr_h: z.number().optional(),

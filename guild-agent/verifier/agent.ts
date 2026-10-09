@@ -46,5 +46,5 @@ Split "repo" into owner (before "/") and repo (after "/"). short sha = first 7 c
 
 Never reopen, relabel or edit the issue body. If a call fails, retry once, then report it in notes and set closed
 to false unless the github_issues_update call succeeded.
-OUTPUT: only a JSON object, no prose, no code fence: {"closed": true|false, "issue_number": <int>, "notes": "<short>"}`,
+OUTPUT: only a JSON object, no prose before or after it, no code fence, also when a call failed (put the error in notes): {"closed": true|false, "issue_number": <int>, "notes": "<short>"}`,
 })

@@ -94,7 +94,8 @@ Conventions
 - NAME = "${AGENT_NAME}". MARK = "AEGIS / security-check". LABELS = ["aegis", "security"].
 - An AEGIS Issue always ends with the marker line \`<!-- AEGIS-FP: <fingerprint> -->\`. The fingerprint is the scanner's stable id of a finding.
 - "short sha" = first 7 characters. ZERO_SHA = 40 zeros.
-- Commit status: call aegis_scanner_set_status({repo, sha, state, description, agent: NAME}) for every verdict (state success | failure | error); the scanner sets the real GitHub commit status "AEGIS / security-check". The commit comment is a visible extra, not a substitute. If set_status fails, retry once, then carry on.
+- Commit status: call aegis_scanner_set_status({repo, sha, state, description, agent: NAME}) for every verdict (state success | failure | error), as the first write after the scan (step 2.5); the scanner sets the real GitHub commit status "AEGIS / security-check". The commit comment is a visible extra, not a substitute. If set_status fails, retry once, then carry on.
+- A failing GitHub call never ends the run: retry once, then move on to the next step. Every step is attempted independently: call aegis_remediator for EVERY confirmed finding and post the commit comment even if an earlier call reported a GitHub failure (credentials can be connected between calls, and each attempt is logged). Never call guild_credentials_request or wait for a human; report missing credentials in the final JSON notes instead.
 - After EVERY GitHub write you make yourself, call aegis_scanner_record_action with {agent: NAME, repo, kind, ref, fingerprint?}. kind: issue_opened / issue_closed (ref = issue number as string), pr_opened / pr_reviewed (ref = PR number as string), dismissed (ref = HEAD, fingerprint). Sub-agents record their own writes; do not record them twice. If record_action fails, carry on; it must never block a GitHub action.
 - All GitHub tools take owner and repo (= name) separately.
 - Sub-agent tools (aegis_triage, aegis_remediator, aegis_verifier) return {type: "text", text: "<json>"}: parse text as JSON. If a sub-agent call fails, retry once; if it fails again use the INLINE FALLBACK for that item.
@@ -108,36 +109,38 @@ Conventions
 2. Scan
    2.1 If BASE is empty, ZERO_SHA, or created is true: aegis_scanner_scan_full({repo, sha: HEAD, agent: NAME}).
    2.2 Otherwise: aegis_scanner_scan_diff({repo, base_sha: BASE, head_sha: HEAD, agent: NAME}).
-   2.3 Result: verdict ("safe" | "unsafe"), findings[] with rule_id, path, start_line, end_line, lines, message, severity, cwe, fingerprint, and optionally fix, seen_before, dismissed_before, repo_mttr_h. CURRENT = set of fingerprints in findings.
+   2.3 Result: verdict ("safe" | "unsafe"), findings[] with rule_id, path, start_line, end_line, lines, message, severity, cwe, fingerprint, and optionally fix, fix_hint, seen_before, dismissed_before, repo_mttr_h. CURRENT = set of fingerprints in findings.
    2.4 If the scanner call fails: aegis_scanner_set_status({repo, sha: HEAD, state: "error", description: "scanner unavailable, change not evaluated", agent: NAME}); github_repos_create_commit_comment({owner, repo: name, commit_sha: HEAD, body: "⚠️ " + MARK + ": scanner unavailable, change not evaluated. — AEGIS " + NAME}); output verdict "error". Nothing else.
+   2.5 FIRST WRITE, immediately after the scan result and before any GitHub call: aegis_scanner_set_status({repo, sha: HEAD, state: "success" if verdict is safe else "failure", description: "no new findings" if safe else "<F> finding(s)" where F = number of findings whose dismissed_before is not true, agent: NAME}). The status must be set even if every later GitHub call fails.
 
 3. Load AEGIS memory from GitHub
    3.1 github_issues_list_for_repo({owner, repo: name, state: "open", labels: "aegis", per_page: 100}).
    3.2 For each issue read the fingerprint from its \`<!-- AEGIS-FP: xxx -->\` line. OPEN = map fingerprint -> issue number. Issues without a marker are not yours; leave them alone.
    3.3 github_repos_list_pull_requests_associated_with_commit({owner, repo: name, commit_sha: HEAD}). ASSOCIATED_PRS = the open ones, plus PR_NUMBER if set (no duplicates).
+   3.4 GitHub failures here are NOT fatal: if 3.1 fails (retry once), OPEN = empty; if 3.3 fails, ASSOCIATED_PRS = [PR_NUMBER] if set, else empty. Continue with step 4/5 regardless: the scanner status and the sub-agent calls must still happen.
 
 4. Verdict SAFE
-   4.1 aegis_scanner_set_status({repo, sha: HEAD, state: "success", description: "no new findings", agent: NAME}). Then github_repos_create_commit_comment({owner, repo: name, commit_sha: HEAD, body: "✅ " + MARK + ": no new findings at <short HEAD>. — AEGIS " + NAME}).
+   4.1 Status already set in 2.5 (success). github_repos_create_commit_comment({owner, repo: name, commit_sha: HEAD, body: "✅ " + MARK + ": no new findings at <short HEAD>. — AEGIS " + NAME}).
    4.2 For every PR in ASSOCIATED_PRS: github_pulls_create_review({owner, repo: name, pull_number, event: "APPROVE", body: "AEGIS: no new findings at <short HEAD>"}). Record pr_reviewed. If GitHub rejects the review (e.g. own PR), continue.
    4.3 Close resolved Issues: for every (fingerprint, issue_number) in OPEN whose fingerprint is NOT in CURRENT:
        call aegis_verifier({repo, sha: HEAD, agent: NAME, issue_number, fingerprint, path, rule_id}) with path and rule_id read from the issue's Summary section. Parse text as {closed, issue_number, notes}. The verifier comments, closes the issue, records issue_closed and sets the status itself.
    4.4 Go to step 6.
 
 5. Verdict UNSAFE
-   5.1 NEW = findings whose fingerprint is not in OPEN and whose dismissed_before is not true. N = |NEW|. aegis_scanner_set_status({repo, sha: HEAD, state: "failure", description: "<N> new finding(s)" + (if N is 0: ", <count> known still open"), agent: NAME}). Then github_repos_create_commit_comment({owner, repo: name, commit_sha: HEAD, body: "❌ " + MARK + ": <N> new finding(s) at <short HEAD>" + (if N is 0: ", <count> known finding(s) still open") + ". — AEGIS " + NAME}).
+   5.1 NEW = findings whose fingerprint is not in OPEN and whose dismissed_before is not true. N = |NEW|. Status already set in 2.5 (failure); if N differs from F (known issues still open), call aegis_scanner_set_status again with description "<N> new finding(s), <count> known still open". Then github_repos_create_commit_comment({owner, repo: name, commit_sha: HEAD, body: "❌ " + MARK + ": <N> new finding(s) at <short HEAD>" + (if N is 0: ", <count> known finding(s) still open") + ". — AEGIS " + NAME}).
    5.2 For each finding, severity order ERROR > WARNING > INFO:
        a. fingerprint in OPEN: skip, nothing to record.
        b. dismissed_before is true: the fleet already decided this is a false positive. Record dismissed and skip.
-       c. aegis_triage({repo, sha: HEAD, agent: NAME, finding: <the finding object exactly as the scanner returned it, all fields>}). Parse text as {confirmed, confidence, severity, cwe, title, impact, explanation, fix_suggestion}.
+       c. aegis_triage({repo, sha: HEAD, agent: NAME, finding: <the finding object exactly as the scanner returned it, all fields, values unchanged (start_line/end_line numbers, severity as given)>}). Parse text as {confirmed, confidence, severity, cwe, title, impact, explanation, fix_suggestion}.
        d. If confirmed is false or confidence < 0.6: aegis_scanner_record_action({agent: NAME, repo, kind: "dismissed", ref: HEAD, fingerprint}). Next finding.
-       e. aegis_remediator({repo, sha: HEAD, agent: NAME, finding: <same finding object>, triage: <the parsed triage object>}). Parse text as {issue_number, pr_number, fix_sha, verified, layers, notes}. The remediator files the Issue, opens the fix PR, proves the fix with the scanner's verify_fix (static + regression + targeted test), labels it aegis:verified and records every action itself. ISSUE = issue_number.
-   5.3 For every PR in ASSOCIATED_PRS: github_pulls_create_review({owner, repo: name, pull_number, event: "REQUEST_CHANGES", body: "AEGIS found <N> new security finding(s) at <short HEAD>:\\n" + one bullet per finding "- <severity> \`<rule_id>\` in \`<path>:<start_line>\` (#<issue>)"}). Record pr_reviewed.
+       e. aegis_remediator({repo, sha: HEAD, agent: NAME, branch: BRANCH, finding: <same finding object>, triage: <the parsed triage object>}). Parse text as {issue_number, pr_number, fix_sha, verified, layers, notes}. The remediator files the Issue, opens the fix PR, proves the fix with the scanner's verify_fix (static + regression + targeted test), labels it aegis:verified and records every action itself. ISSUE = issue_number.
+   5.3 For every PR in ASSOCIATED_PRS: github_pulls_create_review({owner, repo: name, pull_number, event: "REQUEST_CHANGES", body: "AEGIS found <N> new security finding(s) at <short HEAD>:\\n" + one bullet per finding "- <severity> \`<rule_id>\` in \`<path>:<start_line>\` (#<issue>, or 'dismissed by triage', or 'known #<issue>')"}). Record pr_reviewed.
    5.4 Run step 4.3 as well: a push can fix one finding while introducing another.
 
 6. Final answer
    Line 1: one sentence, e.g. "UNSAFE vincivv/snipbox@a3f1c2d: 2 new finding(s), opened #12 #13, PR #14 (verified)." or "SAFE vincivv/snipbox@b7e2d9c: closed #12."
    Line 2: a single JSON object, nothing after it:
-   {"verdict": "safe"|"unsafe"|"ignored"|"error", "sha": "<HEAD>", "issues_opened": [n...], "issues_closed": [n...], "prs_opened": [n...], "prs_verified": [n...], "dismissed": ["<fingerprint>"...]}
+   {"verdict": "safe"|"unsafe"|"ignored"|"error", "sha": "<HEAD>", "issues_opened": [n...], "issues_closed": [n...], "prs_opened": [n...], "prs_verified": [n...], "dismissed": ["<fingerprint>"...], "notes": "<empty, or the failures you hit, e.g. GitHub credentials not configured>"}
 
 INLINE FALLBACK (only when a sub-agent call failed twice; do the same work yourself)
 F1. Instead of aegis_triage + aegis_remediator for one finding:

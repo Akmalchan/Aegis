@@ -24,6 +24,7 @@ const Finding = z.object({
   cwe: z.string().optional(),
   fingerprint: z.string(),
   fix: z.string().optional(),
+  fix_hint: z.string().optional(),
   seen_before: z.number().optional(),
   dismissed_before: z.boolean().optional(),
   repo_mttr_h: z.number().optional(),
@@ -46,6 +47,7 @@ const inputSchema = z.object({
   agent: z.string().describe("calling sentinel, e.g. aegis-sentinel-01"),
   finding: Finding.describe("one finding object exactly as returned by aegis_scanner_scan_diff"),
   triage: Triage.describe("the JSON verdict returned by aegis-triage"),
+  branch: z.string().optional().describe("branch the push landed on (PR base); defaults to the repo default branch"),
 })
 
 export default llmAgent({
@@ -53,7 +55,7 @@ export default llmAgent({
     "AEGIS remediator: turns one confirmed security finding into a GitHub Issue and, when the scanner ships a fix, a minimal fix branch + Pull Request, then proves the fix (static re-scan, repo tests, targeted regression test) and labels the PR aegis:verified. Records every write in the AEGIS action log. Returns JSON {issue_number, pr_number, verified, layers, notes}.",
   inputSchema,
   inputTemplate:
-    "Remediate in repo {{repo}} at commit {{sha}} on behalf of {{agent}}.\nFinding (JSON):\n{{finding}}\nTriage (JSON):\n{{triage}}",
+    "Remediate in repo {{repo}} at commit {{sha}} (branch: {{branch}}) on behalf of {{agent}}.\nFinding (JSON):\n{{finding}}\nTriage (JSON):\n{{triage}}",
   tools: {
     ...pick(gitHubTools, [
       "github_repos_get",
@@ -111,8 +113,8 @@ _Filed autonomously by AEGIS agent **<agent>** on Guild.ai. Push a fix and I wil
 The LAST line of the body must be the AEGIS-FP comment, nothing after it. Remember the returned "number" as ISSUE.
 Then call aegis_scanner_record_action {agent, repo, kind: "issue_opened", ref: "<ISSUE>", fingerprint}.
 
-STEP 2 — Pull request (only when finding.fix is a non-empty string)
-a. github_repos_get {owner, repo} → default_branch.
+STEP 2 — Pull request (only when finding.fix is a non-empty string; finding.fix_hint alone is advice for the Issue, not a patch)
+a. BASE_BRANCH = the input "branch" if non-empty; otherwise github_repos_get {owner, repo} → default_branch.
 b. github_git_create_ref {owner, repo, ref: "refs/heads/aegis/fix-<fingerprint>", sha: <sha from input>}.
    If it fails because the reference already exists, continue with that branch.
 c. github_repos_get_content {owner, repo, path: finding.path, ref: <sha>}; the response is a file object: decode
@@ -125,7 +127,7 @@ e. github_repos_create_or_update_file_contents {owner, repo, path: finding.path,
    The content must be the base64 of the whole file, not only the changed lines. Double-check the encoding.
    From the response keep commit.sha as FIX_SHA (the head of the fix branch).
 f. github_pulls_create {owner, repo, title: "AEGIS: fix <rule_id> in <path>", head: "aegis/fix-<fingerprint>",
-   base: <default_branch>, body: "Fixes #<ISSUE>\\n\\nMinimal patch for \`<rule_id>\` (<cwe>) found at
+   base: BASE_BRANCH, body: "Fixes #<ISSUE>\\n\\nMinimal patch for \`<rule_id>\` (<cwe>) found at
    <short sha>. Behaviour outside the patched lines is unchanged.\\n\\n<!-- AEGIS-FP: <fingerprint> -->"}.
    Remember the returned "number" as PR.
 g. aegis_scanner_record_action {agent, repo, kind: "pr_opened", ref: "<PR>", fingerprint}.
@@ -182,7 +184,7 @@ RULES
 - Never claim verified unless aegis_scanner_verify_fix returned verified true.
 - If a GitHub call fails, retry once, then report the failure in notes instead of inventing numbers.
 
-OUTPUT: only a JSON object, no prose, no code fence:
+OUTPUT: only a JSON object, no prose before or after it, no code fence, also when a call failed (put the error in notes):
 {"issue_number": <int or null>, "pr_number": <int or null>, "fix_sha": "<FIX_SHA or null>", "verified": true|false|null,
  "layers": [{"name": "...", "passed": true|false|null, "ms": <int>}] or [], "notes": "<short>"}`,
 })

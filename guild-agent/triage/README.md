@@ -3,7 +3,9 @@
 Sub-agent of `aegis-sentinel-NN`. Takes one Semgrep finding, reads the file at the push commit through the GitHub
 integration, and answers whether it is a true positive. Read-only: it never writes to GitHub and never records actions.
 
-Input: `{repo, sha, agent, finding}` (finding = `Finding` from `openapi.yaml`).
+Input: `{repo, sha, agent, finding}` (finding = `Finding` from `openapi.yaml`, incl. optional `fix_hint` since v1.0.5).
+Published: v1.0.5 `01a12252-7cd7-cf83-0000-b87356392702` (R4, 13:21). Real run 13:18: 4 parallel calls from the sentinel,
+`repos_get_content` Unauthorized (no GitHub credential), judged from `lines` with confidence 0.8, valid JSON back.
 Output (JSON text): `{confirmed, confidence, severity, cwe, title, impact, explanation, fix_suggestion}`.
 Rubric: inline summary of `skills/security-review.md` (source -> sink -> consequence, CWE severity table, FP signals).
 

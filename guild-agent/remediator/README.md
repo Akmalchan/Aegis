@@ -11,13 +11,16 @@ ms each) and sets commit status `success` "fix verified: N layers" on the fix sh
 verify: layer X failed" and leaves the PR as is. Every write is recorded with `aegis_scanner_record_action`
 (`issue_opened`, `pr_opened`, `verified` / `verify_failed`).
 
-Input: `{repo, sha, agent, finding, triage}` (triage = output of aegis-triage).
+Input: `{repo, sha, agent, finding, triage, branch?}` (triage = output of aegis-triage; `branch` = pushed branch, used as PR
+base, default = repo default branch; `finding` may carry `fix_hint`, which goes into the Issue text, never into a patch).
 Output (JSON text): `{issue_number, pr_number|null, fix_sha|null, verified: bool|null, layers: [{name, passed, ms}], notes}`.
 
 GitHub tools: `github_repos_get`, `github_repos_get_content`, `github_issues_create`, `github_issues_create_comment`,
 `github_issues_add_labels`, `github_git_create_ref`, `github_repos_create_or_update_file_contents`,
 `github_pulls_create`. Scanner (1.1.0): `aegis_scanner_record_action`, `aegis_scanner_verify_fix`, `aegis_scanner_set_status`.
-Published: v1.0.4 `01a1224a-b979-cf83-0000-f3b7ec4871c2` (13:12, "W: verify loop").
+Published: v1.0.5 `01a12252-8649-cf83-0000-e0b3fe8e1b97` (13:21, "R4: fix_hint + branch input"); v1.0.4 `01a1224a-b979-…` (13:12, "W: verify loop").
+R4 real run 13:18: called by the sentinel with a valid input (no schema error), `issues_create` failed Unauthorized
+(GitHub credential not connected), returned `issue_number: null`; output must be JSON only even then (fixed in 1.0.5).
 
 ```bash
 guild auth login

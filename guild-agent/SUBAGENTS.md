@@ -63,16 +63,30 @@ After `aegis_scanner_scan_diff` returns `verdict: unsafe`:
    `dismissed_before`: `aegis_triage({repo, sha: HEAD, agent: NAME, finding})`. The result is
    `{type: "text", text: "<json>"}`; parse `text` as `{confirmed, confidence, severity, cwe, title, impact,
    explanation, fix_suggestion}`.
-2. If `confirmed && confidence >= 0.6`: `aegis_remediator({repo, sha: HEAD, agent: NAME, finding, triage})` →
-   text JSON `{issue_number, pr_number, notes}`. The remediator records `issue_opened` / `pr_opened` itself.
-   Else: `aegis_scanner_record_action({agent: NAME, repo, kind: "dismissed", ref: fingerprint, fingerprint})`
-   and no issue.
+2. If `confirmed && confidence >= 0.6`: `aegis_remediator({repo, sha: HEAD, agent: NAME, branch: BRANCH, finding, triage})`
+   → text JSON `{issue_number, pr_number, fix_sha, verified, layers, notes}`. `branch` (optional, since 1.0.5) is the
+   pushed branch and becomes the PR base; without it the remediator uses the repo default branch. The remediator
+   records `issue_opened` / `pr_opened` / `verified` / `verify_failed` itself.
+   Else: `aegis_scanner_record_action({agent: NAME, repo, kind: "dismissed", ref: HEAD, fingerprint})` and no issue.
 3. On `verdict: safe`, for each open AEGIS issue whose fingerprint is absent from `findings`:
    `aegis_verifier({repo, sha: HEAD, agent: NAME, issue_number, fingerprint, path, rule_id})` → text JSON
    `{closed, issue_number, notes}`. The verifier records `issue_closed` itself.
 
 Pass the finding object exactly as the scanner returned it; the sub-agent input schemas reject missing required
-fields (`rule_id, path, start_line, end_line, lines, message, severity, fingerprint`).
+fields (`rule_id, path, start_line, end_line, lines, message, severity, fingerprint`). Scanner 1.1.0 also returns
+`fix_hint`; `Finding` in triage/remediator declares it since 1.0.5 (R4). Before that the sentinel LLM silently dropped
+the key to satisfy the tool schema (seen in session `01a12251-10bd-…`, 13:18): no validation error, but the hint was lost.
+
+## Real run 13:18 (R4, `fleet/samples/push_vuln_real.json`, GitHub credential NOT connected)
+
+`scan_diff` → `unsafe`, 4 findings (hardcoded-secret ERROR + fix, sql-string-concat ERROR + fix_hint, flask-debug-true
+WARNING + fix, avoid_app_run_with_bad_host WARNING) → `issues_list_for_repo` + `list_pull_requests_associated_with_commit`
+(both Unauthorized) → `skills_search` + 2× `skills_activate` → 4× `aegis_triage` in parallel (each tried
+`repos_get_content`, Unauthorized, judged from `lines`, all `confirmed: true, confidence: 0.8`) → `aegis_remediator`
+for the secret only (`issues_create` Unauthorized, returned `issue_number: null` with prose before the JSON) →
+`set_status failure "4 new findings"` (ok: true, real status set by the scanner) → `create_commit_comment` (Unauthorized)
+→ final JSON `verdict: unsafe`. No schema error on any sub-agent call. Two prompt bugs seen and fixed in 1.0.6 / 1.0.5:
+the status was set last instead of first, and the sentinel stopped delegating after the first GitHub failure.
 
 ## Fallback
 

@@ -77,6 +77,7 @@ and only adds deps). Placeholders `__AGENT_NAME__`, `__OWNER__`, `__SCANNER_INTE
   passed: bool|null, details, ms}]}`, `aegis_scanner_fleet_insights` (warden). Response shapes match `openapi.yaml`.
 - `github_issues_add_labels` params: `{owner, repo, issue_number, body: {labels: string[]}}` (used by the remediator
   on the PR number).
+- Published 13:25 (R4): `andriidrok1~aegis-sentinel-01` **v1.0.7** (`01a1225a-dd83-cf83-0000-9f0204e48239`, PASSED; 1.0.6 = `01a12256-10f7-…`), `aegis-triage` **v1.0.5**, `aegis-remediator` **v1.0.5**, `aegis-verifier` **v1.0.5**; deploy.sh installs `^1.0.5`.
 - Published 13:14 (W: verify loop): `andriidrok1~aegis-sentinel-01` **v1.0.5** (`01a1224c-7922-…`, PASSED, 21 tools
   incl. the 3 agent tools), `aegis-remediator` **v1.0.4** (`01a1224a-b979-…`), `aegis-verifier` **v1.0.4**
   (`01a1224a-bbd1-…`); `aegis-triage` unchanged v1.0.4. Not yet run end to end against a real push after this change.
@@ -101,14 +102,41 @@ cd build/aegis-sentinel-01 && npm run build && guild agent save --message "x" --
 guild agent test --mode json --agent-version <id> < ../../fleet/samples/push_vuln.json
 ```
 
-Expected session for `push_vuln.json` (`168f7e8…` → `a3f1c2d…`): `scan_diff` → `issues_list_for_repo` (labels
-`aegis`) + `list_pull_requests_associated_with_commit` → `set_status failure` + `create_commit_comment ❌` → per
-finding `aegis_triage` → `aegis_remediator` (inside: `issues_create` → `git_create_ref` →
-`create_or_update_file_contents` → `pulls_create` → `verify_fix` → `issues_add_labels aegis:verified` +
-`issues_create_comment` + `set_status success` on the fix sha) → `UNSAFE vincivv/snipbox@a3f1c2d: …` + JSON.
+Observed session (R4, 13:18, `fleet/samples/push_vuln_real.json` = real shas of `andriidrok1/aegis-demo-target`,
+`main` 88e1091 → `verify-test/vuln` 0ad1fc1, session `01a12251-10bd-f268-0000-4d8a66bdd731`, sentinel 1.0.5, GitHub
+credential NOT connected in the workspace):
+`scan_diff {repo, base_sha, head_sha, agent}` → `verdict: unsafe`, 4 findings in `app.py` (`aegis.hardcoded-secret`
+ERROR + `fix`, `aegis.sql-string-concat` ERROR + `fix_hint` only, `aegis.flask-debug-true` WARNING + `fix`,
+`python.flask…avoid_app_run_with_bad_host` WARNING; all `seen_before: 0, dismissed_before: false`) →
+`list_pull_requests_associated_with_commit` + `issues_list_for_repo {labels: "aegis"}` (both `Unauthorized`) →
+`skills_search` + `skills_activate` ×2 → `aegis_triage` ×4 in parallel (valid inputs, no schema error; each tried
+`repos_get_content`, Unauthorized, judged from `lines`: all `confirmed: true, confidence: 0.8`) → `aegis_remediator`
+for the secret finding only (`issues_create` Unauthorized → `issue_number: null`) → `set_status {state: failure,
+description: "4 new findings"}` → `ok: true` (the real commit status was set by the scanner) → `create_commit_comment ❌`
+(Unauthorized) → `UNSAFE andriidrok1/aegis-demo-target@0ad1fc1: 4 new finding(s) …` + JSON `verdict: unsafe`.
+Two prompt bugs seen there and fixed in 1.0.6: the status was the last call instead of the first (now step 2.5,
+right after the scan), and after the first GitHub failure the sentinel skipped the remaining remediator calls (now
+"a failing GitHub call never ends the run"). The LLM also silently dropped `fix_hint` from the finding to satisfy the
+tool schema; triage/remediator 1.0.5 declare it. Sentinel 1.0.6 passes `branch: BRANCH` to the remediator so the fix
+PR targets the pushed branch (`verify-test/vuln`), not `main`.
+
+Re-run with sentinel 1.0.6 (session `01a12256-ec58-f268-0000-1e76e3e0d69c`): `scan_diff` → **`set_status failure
+"4 findings"` first** → `issues_list_for_repo` + `list_prs_for_commit` (Unauthorized, retried once, continued) →
+`aegis_triage` ×4 sequential (`fix_hint` now passed through) → `aegis_remediator {…, branch: "verify-test/vuln"}` for
+the secret (Unauthorized inside) → the 4th finding (`avoid_app_run_with_bad_host`, confidence 0.5) → `record_action
+dismissed` → final JSON with `dismissed: ["00b2cf712aff"]`, `notes: "GitHub credentials not configured."`. Still
+skipped the remaining two remediator calls and the ❌ comment after the first GitHub failure; 1.0.7 adds "every step is
+attempted independently".
+
+Expected once the GitHub credential is connected: same prefix, then per confirmed finding `aegis_remediator`
+(inside: `issues_create` → `git_create_ref` → `repos_get_content` → `create_or_update_file_contents` → `pulls_create`
+(base = pushed branch) → `verify_fix` → `issues_add_labels aegis:verified` + `issues_create_comment` + `set_status
+success` on the fix sha), `create_commit_comment ❌`, `pulls_create_review REQUEST_CHANGES` on associated PRs.
 `push_clean.json`: `scan_diff` → `set_status success` + `create_commit_comment ✅` → `aegis_verifier` per resolved
-fingerprint (comment + close + `set_status`) → `SAFE …`. `pull_request.json`
+fingerprint (comment + close + `record_action issue_closed` + `set_status`) → `SAFE …`. `pull_request.json`
 (synchronize, PR #7): base/head from `pull_request.base.sha` / `pull_request.head.sha`, review on PR #7.
+The fabricated-sha samples (`push_vuln.json`, `push_clean.json`) make the scanner answer `fatal: reference is not a
+tree` and take the error path.
 
 ## Prompt rules worth knowing
 

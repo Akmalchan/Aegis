@@ -7,7 +7,8 @@ closes the issue (`state: closed`, `state_reason: completed`), records `issue_cl
 
 Input: `{repo, sha, agent, issue_number, fingerprint, path, rule_id}`. Output (JSON text): `{closed, issue_number, notes}`.
 Tools: `github_issues_create_comment`, `github_issues_update`, `aegis_scanner_record_action`, `aegis_scanner_set_status`.
-Published: v1.0.4 `01a1224a-bbd1-cf83-0000-317c1c1f29c7` (13:13, "W: verify loop").
+Published: v1.0.5 (R4 13:24, JSON-only output also on failure); v1.0.4 `01a1224a-bbd1-cf83-0000-317c1c1f29c7` (13:13, "W: verify loop").
+Not exercised in the 13:18 real run (no open AEGIS issue could be read: GitHub credential not connected).
 
 ```bash
 guild auth login
