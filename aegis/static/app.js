@@ -274,6 +274,18 @@
     if (!scans.length) return;
     var now = Date.now() / 1000;
     var anchor = scans.find(function (e) { return e.verdict === "unsafe" && now - e.ts < 1800; }) || scans[0];
+    function runMerged(a) {
+      if (a.verdict !== "unsafe") return false;
+      var later = events.filter(function (e) { return e.repo === a.repo && e.ts >= a.ts; });
+      if (later.some(function (e) { return e.kind === "issue_closed"; })) return true;
+      var g = later.some(function (e) { return e.kind === "status_set" && e.state === "success" && e.ts > a.ts; });
+      return g && later.some(function (e) { return e.kind === "scan" && e !== a && e.verdict === "safe"; });
+    }
+    var liveRun = false;  // a newer run still in flight: show the last complete one, flag the live one
+    if (anchor.verdict === "unsafe" && !runMerged(anchor) && now - anchor.ts > 180) {
+      var done8 = scans.find(function (e) { return e.verdict === "unsafe" && e.ts < anchor.ts && runMerged(e); });
+      if (done8) { anchor = done8; liveRun = true; }
+    }
     var repo = anchor.repo;
     var wake = events.find(function (e) { return e.kind === "wake" && e.repo === repo && e.ts <= anchor.ts + 1 && anchor.ts - e.ts < 120; });
     var t0 = wake ? wake.ts : anchor.ts;
@@ -307,7 +319,7 @@
     }
     var v = unsafe ? "unsafe" : "safe";
     setHTML($("incTitle"), esc(short(repo)) + '<span class="v ' + v + '">' + v + "</span>");
-    $("incHint").textContent = agentName(anchor.agent) + " · " + ago(t0);
+    setHTML($("incHint"), esc(agentName(anchor.agent) + " · " + ago(t0)) + (liveRun ? ' <span class="live-chip">live run in progress</span>' : ""));
     var lastDone = -1;
     steps.forEach(function (st, i) { if (/done/.test(st.cls)) lastDone = i; });
     setHTML($("pipeline"), steps.map(function (st, i) {
@@ -397,7 +409,10 @@
   }
   function loadHandoffs() {
     return getJSON("/api/handoffs").then(function (d) {
-      var rows = (d.handoffs || []).filter(function (h) { return String(h.agent || "").length > 2 && !/test/.test(h.agent || ""); }).slice(0, 7);
+      var rows = (d.handoffs || []).filter(function (h) {
+        var r = String(h.repo || ""), ref = String(h.ref || "");
+        return String(h.agent || "").length > 2 && !/test/.test(h.agent || "") && !/^(local:|\/private\/)/.test(r) && r !== "selftest/repo" && ref.indexOf("t->t:") !== 0;
+      }).slice(0, 7);
       $("hoHint").textContent = rows.length ? rows.length + " handoffs checked by Semgrep" : "Agent → agent handoffs, checked by Semgrep";
       setHTML($("handoffs"), rows.length ? rows.map(function (h) {
         var m = /^(.+?)->(.+?):(.+)$/.exec(String(h.ref || ""));
@@ -481,8 +496,8 @@
     $("chatCount").textContent = events.length + " recent";
   }
   function loadEvents() {
-    return getJSON("/api/events?n=80").then(function (d) {
-      var events = (d.events || []).filter(function (e) { return e.repo && !/^local:|selftest/.test(e.repo); });
+    return getJSON("/api/events?n=200").then(function (d) {
+      var events = (d.events || []).filter(function (e) { return e.repo && !/^(local:|\/private\/)|selftest/.test(e.repo); });
       var fresh = lastTs == null ? [] : events.filter(function (e) { return e.ts > lastTs; });
       if (events.length) lastTs = Math.max(lastTs || 0, events[0].ts);
       renderChat(events, fresh);
@@ -722,6 +737,14 @@
     if ((e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !/input|select|textarea/i.test(e.target.tagName)) setProjector(!document.body.classList.contains("projector"));
   });
 
+  /* ================= sponsor strip ================= */
+  function loadSponsors() {
+    return getJSON("/api/stats").then(function (s) {
+      if (s.findings) $("spCH").textContent = "ClickHouse — fleet memory · " + fmtK(s.findings) + " findings";
+      if (s.scans) $("spSG").textContent = "Semgrep — scan, guard, verify · " + fmtInt(s.scans) + " scans";
+    }).catch(function () {});
+  }
+
   /* ================= schedule ================= */
   function every(fn, ms) { fn(); setInterval(fn, ms); }
   loadFleet().then(function () { every(loadEvents, 2000); });
@@ -733,4 +756,5 @@
   every(loadPatrol, 1500);
   every(loadGuild, 4000);
   every(loadHandoffs, 5000);
+  every(loadSponsors, 10000);
 })();

@@ -47,7 +47,7 @@ Fleet today: 10 Guild agents (`guild agent list --owner andriidrok1`), 23 trigge
 | **Guild.ai** | 10 hosted TypeScript `llmAgent`s: `aegis-sentinel-01..03` (3 repos each), sub-agents `triage`, `remediator`, `verifier` wired as tools of the sentinel, `warden` and `reporter` on cron, `rulesmith` and `onboarder` on `issues` webhooks | [`guild-agent/`](guild-agent/), [`fleet/deploy.sh`](fleet/deploy.sh) |
 | | 21 GitHub webhook triggers (push + pull_request per repo, issues for rulesmith/onboarder) and 2 time triggers | `guild trigger list`, [`fleet/triggers.json`](fleet/triggers.json) |
 | | Custom integration `aegis-scanner` imported from OpenAPI; Guild's credential proxy injects `X-AEGIS-Key`, the agents never see it | [`openapi.yaml`](openapi.yaml), [`fleet/integration.sh`](fleet/integration.sh) |
-| | Credential policies: each sentinel may write only to its 3 repos; a call on a foreign repo is refused by the proxy before it reaches GitHub (proven, see [`docs/LIVE-RUN.md`](docs/LIVE-RUN.md) "Deny proof") | [`fleet/policies.sh`](fleet/policies.sh) |
+| | Credential policies, least privilege, no catch-all: each sentinel may act only on its 3 repos; triage/remediator/verifier only on the 9 fleet repos; rulesmith/onboarder/reporter write only to the AEGIS repo and read the fleet; warden reads the fleet and files issues in the report repo. Anything else is refused by the proxy before it reaches GitHub (proven, see [`docs/LIVE-RUN.md`](docs/LIVE-RUN.md) "Deny proof") | [`fleet/policies.sh`](fleet/policies.sh) |
 | | Skills `aegis~security-review`, `aegis~remediation-playbook`; evals for the sentinel | [`skills/`](skills/), [`evals/`](evals/) |
 | **Semgrep** | Diff scans with `--baseline-commit`; 19 bundled rules (Python, JS/TS) with CWE metadata, 5 with `fix:` that become the patch; registry packs `p/security-audit`, `p/secrets` | [`aegis/scanner.py`](aegis/scanner.py), [`rules/`](rules/) |
 | | Rules for AI-generated code: `aegis.agent-directed-instruction-in-comment` (a comment that tells the reviewing agent what to do is itself a finding, CWE-1427) and taint rules `aegis.taint-llm-output-to-exec` (LLM response → `eval/exec/subprocess/execute/requests/open`, `json.loads` sanitizes) and `aegis.taint-request-to-sql`; dataflow traces attached to the finding and quoted in the Issue | [`rules/aegis-agent-injection.yml`](rules/aegis-agent-injection.yml), [`rules/aegis-taint.yml`](rules/aegis-taint.yml), [`docs/SEMGREP-DEEP.md`](docs/SEMGREP-DEEP.md) |
@@ -55,8 +55,10 @@ Fleet today: 10 Guild agents (`guild agent list --owner andriidrok1`), 23 trigge
 | | Learned-rule gate: `semgrep --validate` + `semgrep --test` with `ruleid:`/`ok:` fixtures on every proposed rule, and in CI | [`aegis/rules_api.py`](aegis/rules_api.py), [`.github/workflows/semgrep-rules.yml`](.github/workflows/semgrep-rules.yml) |
 | | Self-audit of AEGIS itself: 127 files, 15 → 4 findings, 0 ERROR | [`tests/self_audit.sh`](tests/self_audit.sh), [`docs/SELF-AUDIT.md`](docs/SELF-AUDIT.md) |
 | **OpenAI** | `gpt-4.1` writes the replacement for the flagged span when the rule carries no `fix:`; output is JSON, temperature 0, scanned by the guard, then verified L1 to L3. Guild's LLM provider runs the agents' own reasoning | [`aegis/fix.py`](aegis/fix.py) |
-| **ClickHouse Cloud** | Tables `scans`, `findings`, `actions` (MergeTree); backfill of Semgrep over the git history of the fleet plus sqlmap, buildbot and NodeGoat: 1,088 commits, 22,611 finding rows | [`clickhouse/schema.sql`](clickhouse/schema.sql), [`clickhouse/backfill.py`](clickhouse/backfill.py) |
+| **ClickHouse Cloud** | Tables `scans`, `findings`, `actions` (MergeTree); backfill of Semgrep over the git history of the fleet plus 10 open-source projects (sqlmap, buildbot, NodeGoat, juice-shop, salt, ansible, luigi, pygoat, redash, Vulnerable-Flask-App): 2,007 commits, 38,739 finding rows, 2005 to 2026 | [`clickhouse/schema.sql`](clickhouse/schema.sql), [`clickhouse/backfill.py`](clickhouse/backfill.py) |
 | | Enrichment inside the verdict path: `seen_before`, `dismissed_before` (suppressed fleet-wide), `repo_mttr_h`; `GET /insights` for rising repos, noisy rules, reopened findings, agent latency p50/p95, handoff stats; the dashboard is ClickHouse queries only | [`aegis/ch.py`](aegis/ch.py), [`aegis/dashboard.py`](aegis/dashboard.py) |
+| | **Priority that steers the fix:** the same enrichment query adds `exposure_days` and the rule's fleet-wide dismiss rate; every finding gets a 0-100 `priority` with reasons, and scans return findings highest priority first, so fleet history picks the one finding the remediator fixes per push | [`aegis/ch.py`](aegis/ch.py) `enrich`, `rank` |
+| | **Real-time rollups:** materialized views `posture_daily` (AggregatingMergeTree, `uniqState`) and `agent_activity_1m` (SummingMergeTree) update on every insert; the 20-year posture timeline reads the rollup (~45 ms). `windowFunnel` fix funnel (detected → Issue → PR → verified → closed, median time per stage) and an anomaly watch over the agents themselves (bursts, policy denies). Full write-up: [`clickhouse/README.md`](clickhouse/README.md) | [`clickhouse/views.sql`](clickhouse/views.sql), `/api/funnel`, `/api/anomalies` |
 | **GitHub** | Commit statuses (`AEGIS / security-check`), Issues, branches via the Git Data API (plain text, no base64), PRs, labels, merges, all through Guild's GitHub credential | [`guild-agent/remediator/README.md`](guild-agent/remediator/README.md) |
 
 ## How we know
@@ -70,14 +72,31 @@ From real GitHub webhooks through Guild on `andriidrok1/aegis-demo-target` ([`do
 | Measured | Time after `git push` |
 |---|---|
 | Guild session spawned | 1 to 4 s |
-| Red commit status on a vulnerable push | ≤ 26 s (36 s in the final flow) |
-| Green status on a harmless push | 35 s |
-| Issue opened | 74 s |
-| Fix PR opened | 96 s (3 min 00 s in the final one-fix-per-push flow, which includes the verify gate) |
-| PR labelled `aegis:verified` | 112 s |
-| PR merged by the agent | 3 min 23 s |
+| Red commit status on a vulnerable push | 20 to 28 s (24 s in the final run) |
+| Green status on a harmless push | 22 to 48 s |
+| Story Issue opened | 1 min 46 s to 2 min 12 s |
+| Fix PR opened | 2 min 22 s (final one-fix-per-push flow, after the verify gate) |
+| PR labelled `aegis:verified` | 2 min 28 s |
+| PR merged by the agent | 2 min 34 s (`github_pulls_merge`, PR #77) |
+| Green status on the merge commit | 2 min 57 s |
+| Story Issue closed after merge | not yet: the merge-push session skipped the full-scan/verifier step in both auto-merge runs (fix published, untested) |
 | `verify_fix` | static 3.8 to 8 s, targeted test ~0.2 s |
 | Policy deny on a foreign repo | refused by the proxy, `http_status_code: null` |
+
+## Run it yourself: the `aegis` CLI
+
+Same engine and rules as the fleet, on your laptop or in CI. No server, no Guild, no accounts. Needs `semgrep` on PATH (`pipx install semgrep`).
+
+```bash
+pipx install git+https://github.com/Akmalchan/Aegis
+aegis scan                         # this repo; exit 1 if unsafe, so CI fails the build
+aegis scan --diff main             # only what this branch introduced, like a push
+aegis scan owner/repo --sarif out.sarif   # any GitHub repo + SARIF for code scanning
+aegis fleet                        # fleet numbers + exposure clock (needs a running scanner)
+aegis watch                        # live feed of the agents
+```
+
+Every finding shows severity, CWE, the matched line, the taint path (source → sink), the exposure clock (how long it has been live) and Semgrep's autofix or fix hint. `--json` for machines, `--fail-on error|warning|never` for CI.
 
 ## Run it
 

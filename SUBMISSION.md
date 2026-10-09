@@ -22,7 +22,7 @@ On a red push the triage sub-agent reads the file and confirms source, sink and 
 
 Guild credential policies fence each sentinel to its own repos; a call on a foreign repo is refused by the proxy. Code and comments are data, never instructions: a comment asking the agent to approve the file becomes a finding.
 
-ClickHouse Cloud stores every scan, finding and action (22,611 findings backfilled over 1,088 commits). Enrichment runs inside the verdict: a false positive dismissed once is suppressed fleet-wide. Rulesmith turns confirmed findings into validated Semgrep rules. Fix once, prevent everywhere.
+ClickHouse Cloud stores every scan, finding and action (38,739 findings backfilled over 2,007 commits, 2005 to 2026). Enrichment runs inside the verdict: a false positive dismissed once is suppressed fleet-wide. The same query gives every finding a priority (recurrence, exposure time, repo fix speed, rule noise) that decides which finding the agent fixes first. Rulesmith turns confirmed findings into validated Semgrep rules. Fix once, prevent everywhere.
 
 ## Tools used
 
@@ -33,7 +33,7 @@ Guild.ai (10 hosted agents, 21 webhook + 2 cron triggers, custom OpenAPI integra
 - [x] **Pi (overall)**: the full loop (detect, prove, patch, verify, merge, close) runs on real GitHub repos with no human action after `git push`; nothing an LLM wrote reaches a repo unverified.
 - [x] **Guild.ai**: 10 agents, 23 triggers, a custom integration imported from OpenAPI, credential policies with a proven deny, sub-agents wired as tools.
 - [x] **Semgrep**: detection engine plus three of our own ideas for AI-generated code (injection-through-comments rule, LLM-output taint rule, patch/test handoff guard), and a self-audit of our own code with 0 ERROR findings.
-- [x] **ClickHouse**: analytics that change the agent's behaviour inside the verdict path, over a 22.6k-row git-history backfill, queried live by the dashboard.
+- [x] **ClickHouse**: analytics that change the agent's behaviour inside the verdict path (false-positive suppression, fix priority), materialized views for real-time rollups, a windowFunnel fix funnel and an anomaly watch over the agents, over a 38.7k-row git-history backfill, queried live by the dashboard.
 - [ ] **OpenAI** (if a prize exists): gpt-4.1 as a span-locked patch writer whose output is scanned and tested before anyone sees it.
 
 ## Repository
@@ -62,4 +62,4 @@ Ten agents, all on Guild: three sentinels woken by 18 push/pull_request webhook 
 
 ## ClickHouse blurb
 
-ClickHouse Cloud holds every scan, finding and action the fleet makes, plus a backfill of Semgrep over the git history of 13 repos (1,088 commits, 22,611 findings, 2005 to 2026). The data sits inside the decision path: before a sentinel sees a finding, one query adds `seen_before`, `dismissed_before` and the repo's MTTR, so a false positive dismissed once is silent everywhere. `GET /insights` feeds the warden's drift report (rising repos, noisy rules, reopened findings, agent latency p50/p95) and the control-room dashboard is nothing but ClickHouse queries.
+ClickHouse Cloud holds every scan, finding and action the fleet makes, plus a backfill of Semgrep over the git history of 20 repos (2,007 commits, 38,739 findings, 2005 to 2026). The data sits inside the decision path: before a sentinel sees a finding, one query adds `seen_before`, `dismissed_before` and the repo's MTTR, so a false positive dismissed once is silent everywhere. `GET /insights` feeds the warden's drift report (rising repos, noisy rules, reopened findings, agent latency p50/p95) and the control-room dashboard is nothing but ClickHouse queries. The same enrichment query computes a 0-100 priority per finding (severity, recurrence across the fleet, days exposed in git history, repo MTTR, rule noise), and the remediator fixes the highest one first. Materialized views (`posture_daily`, `agent_activity_1m`) keep rollups current on every insert, a `windowFunnel` query shows how findings move from detection to Issue, PR, verification and closure, and an anomaly watch flags agents that burst or hit a policy deny.

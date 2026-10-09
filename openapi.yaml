@@ -30,6 +30,13 @@ components:
         seen_before: { type: integer, description: times this fingerprint was seen across the fleet (ClickHouse) }
         dismissed_before: { type: boolean, description: triage already marked this fingerprint a false positive }
         repo_mttr_h: { type: number, description: mean time to remediate in this repo, hours }
+        rule_dismiss_rate: { type: number, description: "fleet-wide share (0-1) of this rule's distinct fingerprints dismissed as false positives (ClickHouse; live agents only)" }
+        exposure_days: { type: number, description: "days since the earliest commit_ts of this fingerprint in this repo (ClickHouse history, incl. backfill); 0 if never seen" }
+        priority: { type: integer, description: "0-100 remediation priority computed from severity + ClickHouse fleet history; findings are returned highest first. Fix the highest one." }
+        priority_reasons:
+          type: array
+          items: { type: string }
+          description: "why it got that priority, e.g. 'ERROR severity', 'seen 3× before in the fleet', 'exposed 412 days'. Quote them in the Issue."
         introduced_sha: { type: string, description: "exposure clock: oldest commit that put this code there (git blame + ClickHouse history)" }
         introduced_at: { type: string, description: "exposure clock: when that commit was authored (ISO 8601, UTC)" }
         introduced_by: { type: string, description: "exposure clock: author of that commit" }

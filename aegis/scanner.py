@@ -117,13 +117,48 @@ def run_semgrep(workdir: Path, files: list[str] | None = None, baseline_commit: 
     return findings
 
 
+def run_semgrep_with_errors(workdir: Path, files: list[str] | None = None, baseline_commit: str | None = None,
+                            use_registry: bool = True) -> tuple[list[dict], list[dict]]:
+    """Like run_semgrep, plus Semgrep's `errors[]` normalised to {path, type, message}.
+    A file Semgrep could not parse yields 0 findings: 0 findings is not clean unless errors is empty too."""
+    findings, _, errors = _scan(workdir, files, baseline_commit, use_registry)
+    return findings, errors
+
+
+def _norm_errors(data: dict) -> list[dict]:
+    out = []
+    for e in data.get("errors", []) or []:
+        typ = e.get("type")
+        typ = typ[0] if isinstance(typ, list) and typ else str(typ or "error")
+        path = e.get("path") or next((s.get("file") for s in e.get("spans") or [] if s.get("file")), "")
+        msg = " ".join(str(e.get("message", "")).split("`")[0].split()).rstrip(":")
+        out.append({"path": str(path).removeprefix("./"), "type": typ, "message": msg[:200], "level": e.get("level", "")})
+    return out
+
+
+PARSE_ERROR_TYPES = ("PartialParsing", "Syntax error", "Lexical error", "Timeout", "Other syntax error", "Parse error")
+
+
+def parse_errors(errors: list[dict], paths) -> list[dict]:
+    """Errors that mean Semgrep did not really read one of `paths` (parse failure or timeout)."""
+    paths = {str(p).removeprefix("./") for p in paths}
+    return [e for e in errors if e["path"] in paths and (
+        any(t.lower() in e["type"].lower() for t in PARSE_ERROR_TYPES) or "syntax error" in e["message"].lower())]
+
+
 def scan(workdir: Path, files: list[str] | None = None, baseline_commit: str | None = None,
          use_registry: bool = True) -> tuple[list[dict], int]:
     """Like run_semgrep, also returns the number of files Semgrep scanned."""
+    findings, n, _ = _scan(workdir, files, baseline_commit, use_registry)
+    return findings, n
+
+
+def _scan(workdir: Path, files: list[str] | None = None, baseline_commit: str | None = None,
+          use_registry: bool = True) -> tuple[list[dict], int, list[dict]]:
     if files is not None:
         targets = [f for f in files if (workdir / f).is_file()]
         if not targets:
-            return [], 0
+            return [], 0, []
     else:
         targets = ["."]
     cmd = [SEMGREP, "scan", "--json", "--quiet", "--metrics=off", "--timeout", "30", "--config", str(config.RULES_DIR)]
@@ -140,7 +175,7 @@ def scan(workdir: Path, files: list[str] | None = None, baseline_commit: str | N
         data = {}
     if not data.get("results") and proc.returncode not in (0, 1) and use_registry:
         print(f"[aegis] semgrep exit {proc.returncode}, retrying with bundled rules: {proc.stderr[-300:]}", file=sys.stderr)
-        return scan(workdir, files, baseline_commit, use_registry=False)
+        return _scan(workdir, files, baseline_commit, use_registry=False)
     out = []
     taint_ids = taint_rule_ids()
     for r in data.get("results", []):
@@ -186,7 +221,7 @@ def scan(workdir: Path, files: list[str] | None = None, baseline_commit: str | N
         print(f"[aegis] rule precision unavailable: {e}", file=sys.stderr)
     rank = {"ERROR": 0, "WARNING": 1, "INFO": 2}
     uniq.sort(key=lambda f: (rank.get(f["severity"], 3), f["path"], f["start_line"] or 0))
-    return uniq, len(data.get("paths", {}).get("scanned", []))
+    return uniq, len(data.get("paths", {}).get("scanned", [])), _norm_errors(data)
 
 
 # ---------------------------------------------------------------- taint rules + dataflow traces

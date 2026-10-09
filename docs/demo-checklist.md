@@ -14,7 +14,7 @@ Run top to bottom 15 minutes before rehearsing or recording, and again before th
 | 6 | Triggers | `guild trigger list` (and `--offset 20`) | 23 triggers: 21 webhook + 2 cron; the 6 `aegis-sentinel-01--andriidrok1--snipbox--*` / `aegis-demo-target` / `aegis-target-01` rows active |
 | 7 | Agents published | `guild agent list --owner andriidrok1` | 10 rows: sentinel-01..03, triage, remediator, verifier, warden, reporter, rulesmith, onboarder |
 | 8 | Policies | app.guild.ai → Credentials → GitHub → Policies | per sentinel ALLOW own 3 repos, DENY the rest; delete the unscoped ALLOW-all row if the policies screen is shown (`guild credentials policy delete 01a1225e-d131-02e7-0000-c3da7083897e`) |
-| 9 | ClickHouse loaded | `uv run python -m aegis.ch stats` | findings ≈ 22.6k, scans and actions non-zero |
+| 9 | ClickHouse loaded | `uv run python -m aegis.ch stats` | findings ≈ 39k, scans and actions non-zero |
 | 10 | Test rows gone | `uv run python -m aegis.ch purge-selftest` | no `selftest/repo` on the dashboard |
 | 11 | Dashboard on the projector | `http://localhost:8787/` full screen, zoom until Agents + Latest push + Handoff guard fill the screen | header ClickHouse online, 3 sentinel cards green, timeline drawn |
 | 12 | snipbox fork clean | `cd ~/PycharmProjects/snipbox && git fetch fork && git log --oneline -1 fork/main` | `168f7e8 Initial commit: snipbox 0.4.2`; `gh issue list -R andriidrok1/snipbox` and `gh pr list -R andriidrok1/snipbox` empty; no `aegis/*` branches |

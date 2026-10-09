@@ -23,12 +23,16 @@ def redact(text: str) -> str:
             text = text.replace(secret, "***")
     return text
 
-CACHE_DIR = ROOT / ".cache"
-STATE_DIR = ROOT / "state"
-RULES_DIR = ROOT / "rules"
+# Repo checkout (dev/server): everything lives next to the code. Installed CLI (pipx/pip): rules ship inside the
+# package, caches go to ~/.aegis (or $AEGIS_HOME) so nothing is written into site-packages.
+_IN_REPO = (ROOT / "pyproject.toml").exists() and (ROOT / "rules").is_dir()
+HOME = ROOT if _IN_REPO else Path(os.getenv("AEGIS_HOME") or Path.home() / ".aegis")
+CACHE_DIR = HOME / ".cache"
+STATE_DIR = HOME / "state"
+RULES_DIR = ROOT / "rules" if _IN_REPO else Path(__file__).resolve().parent / "rules"
 EVENTS_LOG = STATE_DIR / "events.jsonl"
 for d in (CACHE_DIR, STATE_DIR):
-    d.mkdir(exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True)
 
 
 def load_fleet() -> dict[str, list[str]]:

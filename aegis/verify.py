@@ -113,12 +113,36 @@ def _scan(workdir: Path) -> list[dict]:
     return scanner.run_semgrep(workdir)
 
 
+def _touched(workdir: Path, base: str, head: str) -> list[str]:
+    r = scanner._git(workdir, "diff", "--name-only", "--diff-filter=AMR", base, head, check=False)
+    return [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
+
+
+def _unparsed(workdir: Path, errors: list[dict], touched: list[str]) -> list[str]:
+    """Touched files at head that Semgrep could not parse, or (.py) that do not even compile.
+    0 findings in a file nobody could parse is not clean."""
+    out = [f"Semgrep could not parse {e['path']}: {e['type']}: {e['message'][:120]}"
+           for e in scanner.parse_errors(errors, touched)]
+    bad = {e["path"] for e in scanner.parse_errors(errors, touched)}
+    for rel in touched:
+        if rel.endswith(".py") and rel not in bad and (workdir / rel).is_file():
+            rc, out_ = _run([sys.executable, "-c", "import sys; compile(open(sys.argv[1], 'rb').read(), sys.argv[1], 'exec')",
+                             str(workdir / rel)], workdir, 60)
+            if rc != 0:
+                last = [l for l in out_.strip().splitlines() if l.strip()]
+                out.append(f"py_compile failed on {rel}: {last[-1][:160] if last else 'exit ' + str(rc)}")
+    return out
+
+
 def _present(findings: list[dict], body: VerifyIn) -> list[dict]:
     return [f for f in findings if (body.fingerprint and f["fingerprint"] == body.fingerprint)
             or (body.rule_id and body.path and f["rule_id"] == body.rule_id and f["path"] == body.path)]
 
 
-def layer_static(base: list[dict], head: list[dict], body: VerifyIn, t0: float) -> dict:
+def layer_static(base: list[dict], head: list[dict], body: VerifyIn, t0: float, unparsed: list[str] | None = None) -> dict:
+    if unparsed:
+        return Layer.make("static", False, "; ".join(unparsed) + f" — 0 findings is not clean ({len(base)} at base, "
+                          f"{len(head)} at head)", t0)
     still = _present(head, body)
     base_fps = {f["fingerprint"] for f in base}
     new = [f for f in head if f["fingerprint"] not in base_fps]
@@ -171,6 +195,8 @@ def _verify(body: VerifyIn) -> dict:
     t_all = time.time()
     layers, token = [], config.GITHUB_TOKEN
     rel = body.test_path or f"tests/test_aegis_{(body.fingerprint or 'fix')[:12]}.py"
+    if body.test_code is not None and not body.test_code.strip():
+        body.test_code = None  # empty/whitespace test_code == no targeted test
     if ".." in Path(rel).parts or Path(rel).is_absolute():
         raise ValueError("test_path must be relative and inside the repo")
 
@@ -188,8 +214,9 @@ def _verify(body: VerifyIn) -> dict:
 
     # --- head: scan (L1), suite (L2), regression test must PASS (L3 second half)
     head_dir = scanner.checkout(body.repo, body.head_sha, token)
-    head_findings = _scan(head_dir)
-    layers.append(layer_static(base_findings, head_findings, body, t0))
+    head_findings, head_errors = scanner.run_semgrep_with_errors(head_dir)
+    unparsed = _unparsed(head_dir, head_errors, _touched(head_dir, body.base_sha, body.head_sha))
+    layers.append(layer_static(base_findings, head_findings, body, t0, unparsed))
     layers.append(layer_regression(body.repo, head_dir, time.time()))
     t3 = time.time()
     if body.test_code and not test_guard["clean"]:
@@ -206,9 +233,10 @@ def _verify(body: VerifyIn) -> dict:
                f" [{_summary(head_out)}]")
         layers.append(Layer.make("targeted_test", fails_on_base and passes_on_head, det, t3))
     else:
-        layers.append(Layer.make("targeted_test", None, "skipped: no test_code given", t3))
+        layers.append(Layer.make("targeted_test", None, "skipped: no targeted test for this finding class", t3))
 
-    verified = all(l["passed"] for l in layers if l["passed"] is not None)
+    # skipped layers (passed=None) never count against verified; static (L1) must always have passed
+    verified = layers[0]["passed"] is True and all(l["passed"] for l in layers if l["passed"] is not None)
     ms = int((time.time() - t_all) * 1000)
     summary = "; ".join(l["details"].split(";")[0] if l["name"] == "static" else
                         ("tests: " + l["details"] if l["name"] == "regression" else "regression test: " + l["details"])

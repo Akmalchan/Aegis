@@ -33,3 +33,19 @@ These were chosen because our bundled rules (`rules/`) produce real hits at HEAD
 
 The backfill only scans these repos locally and stores findings metadata in ClickHouse. Nothing is redistributed, so their licenses are not a concern.
 Histories longer than `--max-commits` (default 400) are sampled evenly along the first-parent history. See the docstring in `clickhouse/backfill.py`.
+
+## Backfill round 2 (2026-10-09, 15:00–15:25, stopped at a time limit)
+
+Semgrep (bundled rules) over sampled history, partial for the big repos; rows are findings in `aegis.findings` with `agent='backfill'`. Clones only, nothing pushed; licenses as stated in each upstream repo.
+
+| Repo | Finding rows |
+|---|---|
+| juice-shop/juice-shop | 4,940 |
+| spotify/luigi | 2,858 |
+| saltstack/salt | 2,809 |
+| adeyosemanputra/pygoat | 2,683 (complete) |
+| ansible/ansible | 1,694 |
+| getredash/redash | 906 |
+| we45/Vulnerable-Flask-App | 238 (complete) |
+
+Total backfill after both rounds: 38,739 finding rows over 2,007 commits from 20 repos, 2005 to 2026.

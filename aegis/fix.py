@@ -250,7 +250,8 @@ def _fix(body: FixIn, t0: float) -> FixOut:
                              "semgrep-rule-fix" if model == "semgrep-rule-fix" else "openai-fix", body.agent,
                              repo=body.repo, ref=body.path, baseline=original)
     if not g["clean"]:
-        return FixOut(ok=False, error="patch rejected by Semgrep: " + ", ".join(g["rule_ids"]), replacement=replacement,
+        return FixOut(ok=False, error=("patch rejected by Semgrep: " + ", ".join(g["rule_ids"])) if g["rule_ids"]
+                      else "patch rejected: " + g["verdict_reason"], replacement=replacement,
                       new_content=new_content, diff=diff, explanation=explanation, model=model, guard=g,
                       span={"start_line": a + 1, "end_line": b + 1}, ms=int((time.time() - t0) * 1000))
     return FixOut(ok=True, replacement=replacement, new_content=new_content, diff=diff, explanation=explanation,
