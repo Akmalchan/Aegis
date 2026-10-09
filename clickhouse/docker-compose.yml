@@ -1,0 +1,20 @@
+# Local fallback for ClickHouse Cloud: docker compose -f clickhouse/docker-compose.yml up -d
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    container_name: aegis-clickhouse
+    ports:
+      - "8123:8123"   # HTTP (clickhouse-connect)
+      - "9000:9000"   # native (clickhouse-client)
+    environment:
+      CLICKHOUSE_DB: aegis
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: aegis
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - aegis-ch-data:/var/lib/clickhouse
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    restart: unless-stopped
+volumes:
+  aegis-ch-data:
