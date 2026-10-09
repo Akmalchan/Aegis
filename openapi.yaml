@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: AEGIS Scanner
+  version: 1.0.0
+  description: Semgrep-as-a-service for the AEGIS agent fleet. Guild imports this spec as a custom integration.
+servers:
+  - url: https://REPLACE-WITH-TUNNEL.trycloudflare.com
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-AEGIS-Key
+  schemas:
+    Finding:
+      type: object
+      required: [rule_id, path, start_line, end_line, lines, message, severity, fingerprint]
+      properties:
+        rule_id: { type: string }
+        path: { type: string }
+        start_line: { type: integer }
+        end_line: { type: integer }
+        lines: { type: string, description: matched source lines }
+        message: { type: string }
+        severity: { type: string, enum: [ERROR, WARNING, INFO] }
+        cwe: { type: string }
+        fingerprint: { type: string, description: stable id = sha1(rule_id|path|lines)[:12] }
+        fix: { type: string, description: replacement code suggested by the rule, when available }
+        seen_before: { type: integer, description: times this fingerprint was seen across the fleet (ClickHouse) }
+        dismissed_before: { type: boolean, description: triage already marked this fingerprint a false positive }
+        repo_mttr_h: { type: number, description: mean time to remediate in this repo, hours }
+    ScanResult:
+      type: object
+      required: [repo, sha, verdict, findings, ms]
+      properties:
+        repo: { type: string }
+        sha: { type: string }
+        base_sha: { type: string }
+        verdict: { type: string, enum: [safe, unsafe] }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/Finding' }
+        n_files: { type: integer }
+        ms: { type: integer }
+security:
+  - apiKey: []
+paths:
+  /scan/diff:
+    post:
+      operationId: scan_diff
+      summary: Scan only what a push introduced (Semgrep --baseline-commit). Answers "did this change make the repo unsafe?"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, base_sha, head_sha, agent]
+              properties:
+                repo: { type: string, description: owner/name }
+                base_sha: { type: string, description: commit before the push }
+                head_sha: { type: string, description: commit after the push }
+                agent: { type: string, description: calling agent name, e.g. aegis-sentinel-01 }
+      responses:
+        '200':
+          description: scan result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScanResult' }
+  /scan/full:
+    post:
+      operationId: scan_full
+      summary: Scan every tracked file of a repo at a commit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, sha, agent]
+              properties:
+                repo: { type: string }
+                sha: { type: string }
+                agent: { type: string }
+      responses:
+        '200':
+          description: scan result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScanResult' }
+  /actions:
+    post:
+      operationId: record_action
+      summary: Agent reports an action it took (stored in ClickHouse).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent, repo, kind, ref]
+              properties:
+                agent: { type: string }
+                repo: { type: string }
+                kind: { type: string, enum: [status_set, issue_opened, issue_closed, pr_opened, pr_reviewed, dismissed, denied, email] }
+                ref: { type: string, description: issue/PR number, sha, or url }
+                fingerprint: { type: string }
+                latency_ms: { type: integer }
+                session_url: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean } }
+  /insights:
+    get:
+      operationId: fleet_insights
+      summary: Fleet-wide analytics from ClickHouse for the warden agent.
+      parameters:
+        - name: hours
+          in: query
+          schema: { type: integer, default: 24 }
+      responses:
+        '200':
+          description: insights
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rising_repos: { type: array, items: { type: object } }
+                  noisy_rules: { type: array, items: { type: object } }
+                  reopened: { type: array, items: { type: object } }
+                  agent_latency: { type: array, items: { type: object } }
