@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AEGIS Scanner
-  version: 1.2.0
+  version: 1.3.0
   description: Semgrep-as-a-service for the AEGIS agent fleet. Guild imports this spec as a custom integration.
 servers:
   - url: https://REPLACE-WITH-TUNNEL.trycloudflare.com
@@ -30,6 +30,30 @@ components:
         seen_before: { type: integer, description: times this fingerprint was seen across the fleet (ClickHouse) }
         dismissed_before: { type: boolean, description: triage already marked this fingerprint a false positive }
         repo_mttr_h: { type: number, description: mean time to remediate in this repo, hours }
+        taint_rule_id: { type: string, description: "taint rule that also matched this line (its trace is attached) when a syntactic rule's id/fingerprint was kept" }
+        trace_text: { type: string, description: "Semgrep's proven dataflow (--dataflow-traces) as one sentence: source -> propagators -> sink with file:line; only for taint rules. Quote it, do not infer the flow yourself." }
+        dataflow_trace:
+          type: array
+          description: "steps of Semgrep's taint trace in order; only for taint rules"
+          items:
+            type: object
+            required: [kind, path, line, code]
+            properties:
+              kind: { type: string, enum: [source, propagator, sink] }
+              path: { type: string }
+              line: { type: integer }
+              code: { type: string }
+    RuleGateResult:
+      type: object
+      required: [ok, validate_ok, test_ok, output, rule_id, errors, ms]
+      properties:
+        ok: { type: boolean, description: "true only when --validate and --test both pass; false => do not open the PR, fix the rule or fixture" }
+        validate_ok: { type: boolean }
+        test_ok: { type: boolean }
+        output: { type: string, description: raw semgrep --validate and --test output; paste into the PR body }
+        rule_id: { type: string }
+        errors: { type: array, items: { type: string } }
+        ms: { type: integer }
     ScanResult:
       type: object
       required: [repo, sha, verdict, findings, ms]
@@ -82,6 +106,24 @@ components:
             end_line: { type: integer }
         ms: { type: integer }
         error: { type: string }
+        guard: { $ref: '#/components/schemas/GuardResult', description: "handoff guard: Semgrep scan of new_content against the original; ok=false with error 'patch rejected by Semgrep: <rules>' when the patch introduces a new finding" }
+    GuardResult:
+      type: object
+      required: [clean, findings, rule_ids, bytes, ms, verdict_reason]
+      properties:
+        clean: { type: boolean, description: "false => do not hand this artifact on; rule_ids says why" }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/Finding' }
+        rule_ids: { type: array, items: { type: string }, description: blocking (ERROR/WARNING, not pre-existing) rule ids }
+        bytes: { type: integer }
+        ms: { type: integer }
+        verdict_reason: { type: string }
+        kind: { type: string }
+        from_agent: { type: string }
+        to_agent: { type: string }
+        scanned: { type: boolean, description: false when the language has no Semgrep support (passed through) }
+        sha: { type: string, description: sha1 of the content, 12 chars; same value recorded as the action fingerprint }
 security:
   - apiKey: []
 paths:
@@ -142,7 +184,7 @@ paths:
               properties:
                 agent: { type: string }
                 repo: { type: string }
-                kind: { type: string, enum: [status_set, issue_opened, issue_closed, pr_opened, pr_reviewed, dismissed, denied, email, verified, verify_failed] }
+                kind: { type: string, enum: [status_set, issue_opened, issue_closed, pr_opened, pr_reviewed, dismissed, denied, email, verified, verify_failed, handoff_ok, handoff_rejected] }
                 ref: { type: string, description: issue/PR number, sha, or url }
                 fingerprint: { type: string }
                 latency_ms: { type: integer }
@@ -265,3 +307,78 @@ paths:
                   noisy_rules: { type: array, items: { type: object } }
                   reopened: { type: array, items: { type: object } }
                   agent_latency: { type: array, items: { type: object } }
+                  handoffs:
+                    type: object
+                    description: handoff guard activity in the window
+                    properties:
+                      ok: { type: integer }
+                      rejected: { type: integer }
+                      last: { type: array, items: { type: object }, description: "last 10: {ts, from, to, kind, ok, rule_ids, repo, ref}" }
+  /rules/propose:
+    post:
+      operationId: propose_rule
+      summary: "Rule gate for learned rules. Runs `semgrep --validate` on rule_yaml, then `semgrep --test` on fixture_code with `# ruleid: <id>` lines (must match) and `# ok: <id>` lines (must not). Call BEFORE opening a rule PR; ok=false means the rule is wrong or noisy, fix it and call again (max 3 tries), never open the PR with ok=false."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rule_yaml, fixture_code, agent]
+              properties:
+                rule_yaml: { type: string, description: "Semgrep rule file text: a `rules:` list with ONE rule" }
+                fixture_code: { type: string, description: "test source in the rule's language. Put `# ruleid: <rule id>` on the line above each line that must match (the original evidence) and `# ok: <rule id>` above a safe variant that must not match" }
+                fixture_path: { type: string, description: "file name whose extension picks the language, e.g. app.py or app.js (default rule.py)" }
+                fixed_code: { type: string, description: "only for rules with a `fix`: the fixture after the fix is applied" }
+                agent: { type: string }
+      responses:
+        '200':
+          description: gate result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleGateResult' }
+  /rules:
+    get:
+      operationId: list_rules
+      summary: Rule ids the fleet scans with, bundled (rules/*.yml) and learned (rules/learned/*.yml), with mode (search|taint) and whether they carry a fix.
+      responses:
+        '200':
+          description: rule inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bundled: { type: array, items: { type: object, properties: { id: { type: string }, file: { type: string }, mode: { type: string }, has_fix: { type: boolean } } } }
+                  learned: { type: array, items: { type: object, properties: { id: { type: string }, file: { type: string }, mode: { type: string }, has_fix: { type: boolean } } } }
+                  n_bundled: { type: integer }
+                  n_learned: { type: integer }
+                  taint_ids: { type: array, items: { type: string } }
+  /guard:
+    post:
+      operationId: guard_artifact
+      summary: Handoff guard. Before you hand code, a test, a patch or a Semgrep rule to another agent (or accept one), have Semgrep validate it. kind=code|test|patch runs rules/ + p/security-audit + p/secrets on the content; kind=patch with `baseline` (the original file) reports only NEW findings; kind=rule runs `semgrep --validate` and, with `fixture`, checks the rule fires. clean=false means do not pass it on; rule_ids says why. Every call is recorded as handoff_ok / handoff_rejected with from_agent->to_agent. /fix and /verify call this guard implicitly on the patch and on test_code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, content, from_agent, to_agent]
+              properties:
+                kind: { type: string, enum: [code, test, patch, rule] }
+                language: { type: string, description: "python | javascript | typescript | yaml | go | java | ruby | php (default python)" }
+                content: { type: string, description: the artifact itself (file source, test source, patched file, or rule YAML) }
+                from_agent: { type: string, description: who produced it }
+                to_agent: { type: string, description: who will consume it }
+                repo: { type: string, description: owner/name when the artifact belongs to a repo }
+                ref: { type: string, description: path or label; used as `path` in findings }
+                baseline: { type: string, description: "kind=patch: the original file, so pre-existing findings are not blamed on the patch" }
+                fixture: { type: string, description: "kind=rule: code the rule must fire on" }
+                fixture_language: { type: string }
+      responses:
+        '200':
+          description: verdict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardResult' }
