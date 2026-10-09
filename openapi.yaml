@@ -382,3 +382,35 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/GuardResult' }
+  /sarif/upload:
+    post:
+      operationId: upload_sarif
+      summary: Put this repo's findings into its GitHub Security tab. Runs a FULL Semgrep scan of the commit (not a diff) and uploads it as SARIF to GitHub code scanning, so every finding becomes a code-scanning alert on the exact line, with severity, CWE, the AEGIS fix hint and, for taint findings, a clickable source-to-sink path. Alert fingerprints equal the AEGIS-FP in Issues. GitHub closes an alert by itself when a later upload for the same branch no longer has it. Call after a push to the default branch (ref empty) or pass the branch ref. Scanner auto-uploads after every scan when AEGIS_SARIF=1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo]
+              properties:
+                repo: { type: string, description: owner/name }
+                sha: { type: string, description: "commit to scan (default HEAD of the default branch)" }
+                ref: { type: string, description: "branch ref the commit belongs to, e.g. refs/heads/main (default branch if empty)" }
+                agent: { type: string, description: calling agent name }
+      responses:
+        '200':
+          description: upload result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  repo: { type: string }
+                  sha: { type: string }
+                  ref: { type: string }
+                  sarif_id: { type: string }
+                  status: { type: string, description: "complete | pending | failed (GitHub processing status)" }
+                  n_results: { type: integer }
+                  url: { type: string, description: the repo's code scanning page }
+                  ms: { type: integer }

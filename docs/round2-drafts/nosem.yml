@@ -1,0 +1,7 @@
+rules:
+  - id: aegis.nosemgrep-without-reason
+    languages: [generic]
+    severity: WARNING
+    message: "Semgrep suppression without a written reason. Say why after '--' or remove it."
+    metadata: {category: security, subcategory: audit}
+    pattern-regex: (?m)(#|//)\s*nosemgrep(:\s*[\w.\-]+)?[ \t]*$

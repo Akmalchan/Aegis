@@ -1,0 +1,61 @@
+rules:
+  - id: aegis.webhook-missing-signature-check
+    languages: [python]
+    severity: ERROR
+    message: "Webhook handler reads the request body but never verifies a signature. Anyone can trigger this agent."
+    metadata: {cwe: "CWE-345", category: security, subcategory: ai-agent}
+    patterns:
+      - pattern-inside: |
+          @$APP.post($PATH, ...)
+          async def $H(...):
+              ...
+      - metavariable-regex: {metavariable: $PATH, regex: "(?i).*(webhook|hook|event).*"}
+      - pattern: await $REQ.json()
+      - pattern-not-inside: |
+          if not hmac.compare_digest(...):
+              ...
+          ...
+  - id: aegis.taint-secret-into-prompt
+    mode: taint
+    languages: [python]
+    severity: WARNING
+    message: "A secret from the environment reaches an LLM prompt. The model provider (and any prompt-injected tool) now holds it."
+    metadata: {cwe: "CWE-200", category: security, subcategory: ai-agent}
+    pattern-sources:
+      - pattern-either:
+          - pattern: os.environ[...]
+          - pattern: os.environ.get(...)
+          - pattern: os.getenv(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.chat.completions.create(..., messages=$M, ...)
+              - pattern: $C.messages.create(..., messages=$M, ...)
+          - focus-metavariable: $M
+  - id: aegis.tool-arg-to-shell
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "An LLM tool-call argument reaches a shell/path/SQL sink without validation."
+    metadata: {cwe: "CWE-78", category: security, subcategory: ai-agent}
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @tool
+              def $F(..., $ARG, ...):
+                  ...
+          - pattern: $ARG
+      - patterns:
+          - pattern-inside: |
+              @$MCP.tool()
+              def $F(..., $ARG, ...):
+                  ...
+          - pattern: $ARG
+    pattern-sanitizers:
+      - pattern: shlex.quote(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: subprocess.$X(..., shell=True, ...)
+          - pattern: os.system(...)
+          - pattern: open(...)
+          - pattern: $CUR.execute(...)
