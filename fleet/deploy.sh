@@ -95,8 +95,15 @@ build_agent() {  # $1 agent name, $2 template dir
     run sed -i -e "s/__AGENT_NAME__/$agent/g" -e "s/__OWNER__/$OWNER/g" -e "s/__SCANNER_INTEGRATION__/$SCANNER_INTEGRATION/g" "$dir/$f"
   done
   if [[ "$SKIP_NPM" != "1" ]]; then
-    show "(cd $dir && npm install --silent --save @guildai/agents-sdk@^0.7.8 @guildai-services/$SCANNER_INTEGRATION@^1.0.0)"
-    [[ "$DRY" == "1" ]] || (cd "$dir" && npm install --silent --save "@guildai/agents-sdk@^0.7.8" "@guildai-services/$SCANNER_INTEGRATION@^1.0.0")
+    # Scanner integration 1.1.0+ (scan_diff, scan_full, record_action, set_status, verify_fix, fleet_insights).
+    show "(cd $dir && npm install --silent --save @guildai/agents-sdk@^0.7.8 @guildai-services/$SCANNER_INTEGRATION@^1.1.0)"
+    [[ "$DRY" == "1" ]] || (cd "$dir" && npm install --silent --save "@guildai/agents-sdk@^0.7.8" "@guildai-services/$SCANNER_INTEGRATION@^1.1.0")
+    # Sentinel only: the sub-agents are PUBLISHED Guild agents, each an npm package @guildai/<owner>~<name> with a
+    # ./tool export (guild-agent/SUBAGENTS.md). They must be published before this install can resolve them.
+    if [[ "$src" == "$TEMPLATE" ]]; then
+      show "(cd $dir && npm install --silent --save @guildai/$OWNER~aegis-triage@^1.0.4 @guildai/$OWNER~aegis-remediator@^1.0.4 @guildai/$OWNER~aegis-verifier@^1.0.4)"
+      [[ "$DRY" == "1" ]] || (cd "$dir" && npm install --silent --save "@guildai/$OWNER~aegis-triage@^1.0.4" "@guildai/$OWNER~aegis-remediator@^1.0.4" "@guildai/$OWNER~aegis-verifier@^1.0.4")
+    fi
   fi
   show "(cd $dir && guild agent save --message 'deploy $(date +%H:%M)' --publish)"
   [[ "$DRY" == "1" ]] || (cd "$dir" && guild agent save --message "deploy $(date +%H:%M)" --publish)

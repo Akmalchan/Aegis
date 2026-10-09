@@ -1,5 +1,17 @@
 # Sub-agents for TypeScript Guild agents (verified 2026-10-09)
 
+## Outcome 13:14 — WIRED (W)
+
+`@guildai/andriidrok1~aegis-{triage,remediator,verifier}` resolved from the Guild registry (`.npmrc`
+`@guildai:registry=https://app.guild.ai/npm/`; `npm view` from a dir without that .npmrc 404s, which is a red herring).
+`build/aegis-sentinel-01`: `npm install --save` of the three `^1.0.4` packages, `agent.ts` imports `.../tool` and
+exposes them as `aegis_triage` / `aegis_remediator` / `aegis_verifier`; local `tsc` clean; `guild agent save --wait
+--publish` PASSED → `andriidrok1~aegis-sentinel-01` v1.0.5 (`01a1224c-7922-cf83-0000-26bd6835e4dc`). The server
+metadata lists the three as `toolType: "agent"` next to `aegis_scanner_set_status`. Inline procedure kept in the
+prompt under `INLINE FALLBACK`. `fleet/deploy.sh` installs the sub-agent packages for the sentinel template only.
+Order on a fresh deploy: publish triage/remediator/verifier first, then the sentinels. Not yet exercised on a real
+push after the wiring; `guild agent test` with `fleet/samples/push_vuln.json` is the next check.
+
 Sources checked: `@guildai/agents-sdk` 0.7.8 d.ts (`dist/llm-agent.d.ts`, `dist/services/utils.d.ts`),
 `@guildai/cli` 0.27.1 docs (`docs/skills/agent-dev.md` "Calling Another Agent",
 `docs/skills/agent-dev-references/integrations.md` "Agent-to-agent delegation"), docs.guild.ai/guide/guild-yaml,

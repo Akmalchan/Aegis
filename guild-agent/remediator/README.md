@@ -3,13 +3,21 @@
 Sub-agent of `aegis-sentinel-NN`. For one confirmed finding it files the `[AEGIS] ...` Issue (labels `aegis`,
 `security`, body ends with `<!-- AEGIS-FP: <fingerprint> -->`) and, when the Semgrep rule shipped a `fix`, creates
 branch `aegis/fix-<fingerprint>` from the push sha, commits the patched file (`AEGIS: fix <rule_id> in <path>`) and
-opens a PR with body `Fixes #<issue>`. Every write is recorded with `aegis_scanner_record_action`.
+opens a PR with body `Fixes #<issue>`. Then it PROVES the fix (STEP 3, added 13:12): writes a small benign pytest
+regression test that must fail on the vulnerable sha and pass on the fix, calls `aegis_scanner_verify_fix({repo,
+base_sha: push sha, head_sha: fix-branch head, fingerprint, rule_id, path, agent, test_code, test_path})` and, when
+`verified` is true, labels the PR `aegis:verified`, comments the three layers (static / regression / targeted test,
+ms each) and sets commit status `success` "fix verified: N layers" on the fix sha; otherwise comments "could not
+verify: layer X failed" and leaves the PR as is. Every write is recorded with `aegis_scanner_record_action`
+(`issue_opened`, `pr_opened`, `verified` / `verify_failed`).
 
 Input: `{repo, sha, agent, finding, triage}` (triage = output of aegis-triage).
-Output (JSON text): `{issue_number, pr_number|null, notes}`.
+Output (JSON text): `{issue_number, pr_number|null, fix_sha|null, verified: bool|null, layers: [{name, passed, ms}], notes}`.
 
-GitHub tools: `github_repos_get`, `github_repos_get_content`, `github_issues_create`, `github_git_create_ref`,
-`github_repos_create_or_update_file_contents`, `github_pulls_create`. Scanner: `aegis_scanner_record_action`.
+GitHub tools: `github_repos_get`, `github_repos_get_content`, `github_issues_create`, `github_issues_create_comment`,
+`github_issues_add_labels`, `github_git_create_ref`, `github_repos_create_or_update_file_contents`,
+`github_pulls_create`. Scanner (1.1.0): `aegis_scanner_record_action`, `aegis_scanner_verify_fix`, `aegis_scanner_set_status`.
+Published: v1.0.4 `01a1224a-b979-cf83-0000-f3b7ec4871c2` (13:12, "W: verify loop").
 
 ```bash
 guild auth login
