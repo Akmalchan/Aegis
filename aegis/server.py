@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import config, scanner, state, enrich, ch, supply_chain, analyst_guild, analyst_openai
 from . import dashboard
 from . import github_status, verify, fix, rules_api, guard  # stream V: commit status setter + fix verification + span patcher
+from . import sarif  # GitHub code scanning: findings in the repo's Security tab
 
 app = FastAPI(title="AEGIS Scanner", version="1.0.0")
 dashboard.mount(app)
@@ -32,6 +33,7 @@ app.include_router(verify.router, dependencies=[Depends(require_key)])
 app.include_router(github_status.router, dependencies=[Depends(require_key)])
 app.include_router(fix.router, dependencies=[Depends(require_key)])
 app.include_router(guard.router, dependencies=[Depends(require_key)])  # handoff guard: Semgrep validates agent-to-agent artifacts
+app.include_router(sarif.router, dependencies=[Depends(require_key)])
 
 
 # repo and sha become git argv (clone URL, checkout target): no leading "-", no whitespace, owner/name only
@@ -93,6 +95,7 @@ def _scan(repo: str, sha: str, base_sha: str, agent: str, trigger: str) -> dict:
         state.log_event("error", agent=agent, repo=repo, stage="clickhouse", error=str(e)[:300])
     state.log_event("scan", agent=agent, repo=repo, sha=real_sha[:7], verdict=verdict, n_findings=len(findings),
                     baseline=bool(baseline), ms=ms, rules=[f["rule_id"] for f in findings])
+    sarif.upload_async(repo, real_sha, agent)  # AEGIS_SARIF=1: same findings appear in the repo's Security tab
     return {"repo": repo, "sha": real_sha, "base_sha": baseline or "", "verdict": verdict, "findings": findings,
             "n_files": n_files, "ms": ms}
 
