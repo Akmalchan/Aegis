@@ -1,9 +1,9 @@
 {
-  "base_version_id": "01a122ba-3026-cf83-0000-d9ca50111b91",
+  "base_version_id": "01a122bb-e02f-cf83-0000-d03617bb1e86",
   "files": {
     ".gitignore": "5d4f9003256a33d4bf777725018d614739f5b32723fd86e866c984df1abf5a35",
     "README.md": "e69a606e83a06a86665e2bee5e9aa26deb2748a4b0e26b0916793f89585b9d92",
     "guild.yaml": "3f130ca1413034806819998f93aad5bedb9c3904280602ac4871a4cb26140e83",
-    "recipe.yaml": "d28ab13ad586d07619ca0713c1fc89c5f41bb234be6fdd81422a24a37ab6886d"
+    "recipe.yaml": "dab1bf8f7909a40645dc092783b83a0be0efd9c748a19e8e74d11373d216c856"
   }
 }
