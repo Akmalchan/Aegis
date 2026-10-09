@@ -1,0 +1,19 @@
+name: semgrep-rules
+on:
+  pull_request:
+    paths: ["rules/**"]
+  push:
+    branches: [main]
+    paths: ["rules/**"]
+jobs:
+  test-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install semgrep==1.180.0
+      - name: validate rules
+        run: for f in rules/*.yml rules/learned/*.yml; do [ -f "$f" ] && semgrep scan --metrics=off --validate --config "$f"; done
+      - name: run ruleid/ok fixtures
+        run: semgrep scan --metrics=off --test --config rules/ rules/tests/

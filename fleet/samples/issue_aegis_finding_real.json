@@ -1,0 +1,28 @@
+{
+ "action": "opened",
+ "repository": {
+  "full_name": "andriidrok1/aegis-demo-target",
+  "default_branch": "main",
+  "owner": {
+   "login": "andriidrok1"
+  },
+  "name": "aegis-demo-target"
+ },
+ "issue": {
+  "number": 55,
+  "html_url": "https://github.com/andriidrok1/aegis-demo-target/issues/55",
+  "title": "[AEGIS] Flask application running in debug mode on all interfaces",
+  "body": "## Summary\n- Severity: **medium** (confidence 1)\n- Rule: `python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host` \u00b7 CWE: CWE-489\n- Location: `app.py:36-36` @ c5fbff5\n\n## What is wrong\nIn app.py:36, the application is configured to run with `debug=True` and `host=\"0.0.0.0\"`. This exposes the application on all network interfaces with the interactive Werkzeug debugger enabled, allowing anyone who can reach port 5080 to trigger exceptions and execute arbitrary code.\n\n## Impact\nAn attacker on the network can exploit the Flask/Werkzeug interactive debugger to execute arbitrary Python code on the server.\n\n## Recommended fix\nDisable debug mode by setting `debug=False` or removing it, and bind to `127.0.0.1` instead of `0.0.0.0` unless external access is strictly required: `app.run(host=\"127.0.0.1\", port=5080, debug=False)`\n\n## Evidence\n```\n    app.run(host=\"0.0.0.0\", port=5080, debug=True)\n```\nSemgrep: Running flask app with host 0.0.0.0 could expose the server publicly.\n\n_Filed autonomously by AEGIS agent **aegis-sentinel-01** on Guild.ai. Push a fix and I will re-scan and close this issue._\n<!-- AEGIS-FP: 01e7bb4985b9 -->",
+  "user": {
+   "login": "guild-ai-platform[bot]"
+  },
+  "labels": [
+   {
+    "name": "aegis"
+   },
+   {
+    "name": "security"
+   }
+  ]
+ }
+}

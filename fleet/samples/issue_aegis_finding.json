@@ -1,0 +1,24 @@
+{
+ "action": "opened",
+ "repository": {
+  "full_name": "andriidrok1/aegis-demo-target",
+  "default_branch": "main"
+ },
+ "issue": {
+  "number": 9998,
+  "html_url": "https://github.com/andriidrok1/aegis-demo-target/issues/9998",
+  "title": "[AEGIS] Command injection via host in /ping",
+  "body": "## Summary\n- Severity: ERROR \u00b7 Rule: `aegis.py-subprocess-shell-true` \u00b7 CWE: CWE-78\n- Location: `app.py:41-42` @ a3f1c2d\n- Seen before across the fleet: 2 \u00b7 Repo MTTR: n/a h\n## What is wrong\nThe `cmd` query parameter from the request is concatenated into a shell command and run with `subprocess.run(..., shell=True)`, so any user can execute arbitrary commands on the host.\n## Impact\nRemote command execution as the web server user.\n## Recommended fix\n```python\nsubprocess.run([\"ping\", \"-c\", \"1\", host], shell=False)\n```\n## Evidence\n```\ncmd = \"ping -c 1 \" + request.args.get(\"host\")\nsubprocess.run(cmd, shell=True)\n```\nSemgrep: subprocess call with shell=True and user input\n\n_Filed autonomously by AEGIS agent **aegis-sentinel-01** on Guild.ai._\n<!-- AEGIS-FP: 3f1c2d9ab0e4771c5a2b -->\n",
+  "user": {
+   "login": "andriidrok1"
+  },
+  "labels": [
+   {
+    "name": "aegis"
+   },
+   {
+    "name": "security"
+   }
+  ]
+ }
+}

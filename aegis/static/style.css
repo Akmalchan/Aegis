@@ -291,6 +291,37 @@ select { font: 500 13px var(--sans); color: var(--ink); background: var(--bg-2);
 .pstat.acc span { color: var(--acc-ink); opacity: .7; }
 .feed-card { margin-top: 12px; }
 
+/* ---------- agents (Guild) ---------- */
+.agents-split { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; }
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.agent-grid .grp { grid-column: 1 / -1; font-size: 13px; font-weight: 500; color: var(--ink-3); margin: 6px 2px -2px; }
+.ag { background: #fff; border-radius: 18px; padding: 14px 16px; display: grid; gap: 6px; position: relative; transition: background .3s; }
+.ag .top { display: flex; align-items: center; gap: 8px; }
+.ag .led { width: 9px; height: 9px; border-radius: 50%; background: var(--bg-3); flex: none; }
+.ag.working { background: var(--ink); color: #fff; }
+.ag.working .led { background: var(--acc); box-shadow: 0 0 0 4px rgba(255, 224, 61, .25); animation: blink 1s ease-in-out infinite; }
+.ag.failed .led { background: var(--red); }
+.ag.done .led { background: var(--green); }
+.ag b { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+.ag .st { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+.ag.working .st { color: var(--acc); }
+.ag small { font-size: 12px; color: var(--ink-3); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag.working small { color: rgba(255, 255, 255, .55); }
+.ag .tool { font: 500 11.5px var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag.working .tool { color: #fff; }
+.ag .tool a { color: inherit; text-decoration: underline; text-underline-offset: 2px; opacity: .7; margin-left: 6px; }
+.ho-card { min-height: 100%; }
+.handoffs { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.handoffs li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 12px; border-radius: 12px; background: #161616; font-size: 13px; font-weight: 500; }
+.handoffs .ha { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.handoffs .ha b { color: var(--acc); }
+.handoffs .hv { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--acc); color: var(--acc-ink); align-self: center; }
+.handoffs li.rejected .hv { background: var(--red); color: #fff; }
+.handoffs .hm { grid-column: 1 / -1; font: 500 11px var(--mono); color: var(--on-night-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.handoffs .empty { color: var(--on-night-2); background: none; }
+.steps-y .m a { color: var(--acc); text-decoration: none; }
+.steps-y li.active .n { background: transparent; border: 2px solid var(--acc); color: var(--acc); animation: blink 1.2s ease-in-out infinite; }
+
 /* ---------- fleet chat ---------- */
 .chat-card { margin-top: 12px; padding: 18px 20px 6px; }
 .chat-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -326,6 +357,7 @@ select { font: 500 13px var(--sans); color: var(--ink); background: var(--bg-2);
 .stat b, .kpi-value, .card-big, .pstat b { min-width: 2ch; }
 
 @media (max-width: 1100px) {
+  .agents-split { grid-template-columns: minmax(0, 1fr); }
   .kstrip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .patrol { grid-template-columns: minmax(0, 1fr); }
   .split { grid-template-columns: minmax(0, 1fr); }

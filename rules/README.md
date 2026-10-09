@@ -1,6 +1,7 @@
 # AEGIS bundled Semgrep rules
 
-`aegis.yml` (Python) and `aegis-js.yml` (JavaScript + TypeScript). Every rule has
+`aegis.yml` (Python), `aegis-js.yml` (JavaScript + TypeScript) and `aegis-taint.yml`
+(Python, Semgrep `mode: taint`: a finding is a proven source-to-sink flow, not a line). Every rule has
 `metadata.cwe` and `metadata.fix_hint`; rules marked "yes" also carry a `fix` /
 `fix-regex`, which Semgrep renders into `extra.fix` in `--json` output.
 
@@ -21,10 +22,12 @@
 | `aegis.js-jwt-none-algorithm` | CWE-347 | WARNING | no |
 | `aegis.js-sql-string-concat` | CWE-89 | ERROR | no (knex `raw`/`*Raw`, `.query` with SQL text) |
 | `aegis.js-nosql-where-injection` | CWE-943 | ERROR | no (Mongo `$where`) |
+| `aegis.taint-request-to-sql` | CWE-89 | ERROR | no (taint: `request.args/form/get_json` -> `.execute/.executescript`; `int()` sanitizes) |
+| `aegis.taint-llm-output-to-exec` | CWE-94 | ERROR | no (taint: OpenAI/Anthropic/Gemini/LangChain/ollama response -> `eval/exec/os.system/subprocess/.execute/requests/open`; `json.loads`/`shlex.quote` sanitize) |
 
 ## Tests
 
-Fixtures live in `tests/` (`aegis.py`, `aegis.fixed.py`, `aegis-js.js`) with
+Fixtures live in `tests/` (`aegis.py`, `aegis.fixed.py`, `aegis-js.js`, `aegis-taint.py`) with
 `# ruleid:` / `# ok:` annotations. Run from the repo root:
 
 ```sh
@@ -35,3 +38,16 @@ semgrep --metrics=off --test --config rules/ rules/tests/
 `--config rules/` only loads `.yml`/`.yaml`, so the fixtures are never read as rules.
 Note that with a directory config Semgrep prefixes rule ids with the path, e.g.
 `rules.aegis.hardcoded-secret`.
+
+## Validate + traces
+
+```sh
+semgrep scan --metrics=off --validate --config rules/aegis-taint.yml
+semgrep scan --metrics=off --dataflow-traces --config rules/aegis-taint.yml path/to/file.py
+```
+
+The scanner runs the second command for taint findings and attaches the
+"Taint comes from / flows through / reaches the sink" block as `dataflow_trace`.
+`POST /rules/propose` runs `--validate` and `--test` on a proposed rule + fixture
+before the rulesmith is allowed to open a PR; `.github/workflows/semgrep-rules.yml`
+runs `--test` on every PR touching `rules/`.

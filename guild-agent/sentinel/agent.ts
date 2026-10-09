@@ -3,8 +3,9 @@
 // Woken by a GitHub webhook trigger (push or pull_request). Asks the AEGIS scanner (Semgrep, exposed to
 // Guild as the custom integration `aegis-scanner`) whether the change made the repo unsafe, sets the real
 // GitHub commit status through the scanner (aegis_scanner_set_status), then delegates: unsafe finding →
-// aegis-triage → aegis-remediator (Issue + fix PR + verified-fix loop); finding gone → aegis-verifier (closes
-// the Issue). The inline procedure stays in the prompt as the fallback if a sub-agent call fails twice.
+// aegis-triage → aegis-remediator (ONE finding per push gets patch + verify + Issue + PR + merge, the others get an
+// Issue); finding gone (confirmed by a full re-scan) → aegis-verifier (closes the Issue). The inline procedure stays
+// in the prompt as the fallback if a sub-agent call fails twice.
 // Every GitHub write is reported back to the scanner (ClickHouse).
 //
 // Placeholders substituted by fleet/deploy.sh: __AGENT_NAME__ (e.g. aegis-sentinel-01), __OWNER__ (e.g.
@@ -101,6 +102,7 @@ Conventions
 - Sub-agent tools (aegis_triage, aegis_remediator, aegis_verifier) return {type: "text", text: "<json>"}: parse text as JSON. If a sub-agent call fails, retry once; if it fails again use the INLINE FALLBACK for that item.
 
 1. Parse the payload
+   1.0 Self-trigger guard (the fleet's own fix branches re-fire these webhooks): if ref starts with "refs/heads/aegis/" or pull_request_head_ref starts with "aegis/", this is a branch opened by an AEGIS agent and already verified by the remediator. Output {"verdict": "ignored", "notes": "aegis fix branch"} and stop. Do not scan, do not write anything to GitHub. Only the ref decides: a push to the default branch whose head_commit_message mentions an aegis/ branch (the merge commit of a verified fix PR) is a normal push and MUST be scanned; that scan is what turns the status green and closes the Issue.
    1.1 repo = repository (owner/name). owner = text before "/", name = text after.
    1.2 If pull_request_number is non-empty: pull_request event. If event_action is not one of opened, synchronize, reopened, ready_for_review, or pull_request_draft is true: output verdict "ignored" and stop. Otherwise HEAD = pull_request_head_sha, BASE = pull_request_base_sha, PR_NUMBER = pull_request_number, BRANCH = pull_request_head_ref.
    1.3 Otherwise: push event. If deleted is true or after is ZERO_SHA: output verdict "ignored" and stop. HEAD = after, BASE = before, BRANCH = ref without the "refs/heads/" prefix (if ref does not start with refs/heads/, e.g. a tag, output "ignored" and stop).
@@ -122,25 +124,25 @@ Conventions
 4. Verdict SAFE
    4.1 Status already set in 2.5 (success). github_repos_create_commit_comment({owner, repo: name, commit_sha: HEAD, body: "✅ " + MARK + ": no new findings at <short HEAD>. — AEGIS " + NAME}).
    4.2 For every PR in ASSOCIATED_PRS: github_pulls_create_review({owner, repo: name, pull_number, event: "APPROVE", body: "AEGIS: no new findings at <short HEAD>"}). Record pr_reviewed. If GitHub rejects the review (e.g. own PR), continue.
-   4.3 Close resolved Issues: for every (fingerprint, issue_number) in OPEN whose fingerprint is NOT in CURRENT:
-       call aegis_verifier({repo, sha: HEAD, agent: NAME, issue_number, fingerprint, path, rule_id}) with path and rule_id read from the issue's Summary section. Parse text as {closed, issue_number, notes}. The verifier comments, closes the issue, records issue_closed and sets the status itself.
+   4.3 Close resolved Issues. CANDIDATES = every (fingerprint, issue_number) in OPEN whose fingerprint is NOT in CURRENT. A diff scan only lists what the push introduced, so a finding that is still in the repo but untouched by this push is also absent from CURRENT; never close on that alone. If CANDIDATES is non-empty: call aegis_scanner_scan_full({repo, sha: HEAD, agent: NAME}) once (retry once; if it fails, close nothing and say so in notes); FULL = set of fingerprints in its findings. For every candidate whose fingerprint is NOT in FULL:
+       call aegis_verifier({repo, sha: HEAD, agent: NAME, issue_number, fingerprint, path, rule_id}) with path and rule_id read from the issue's Summary section. Parse text as {closed, issue_number, notes}. The verifier comments, closes the issue, records issue_closed and sets the status itself. Candidates still present in FULL stay open, untouched.
    4.4 Go to step 6.
 
 5. Verdict UNSAFE
    5.1 NEW = findings whose fingerprint is not in OPEN and whose dismissed_before is not true. N = |NEW|. Status already set in 2.5 (failure); if N differs from F (known issues still open), call aegis_scanner_set_status again with description "<N> new finding(s), <count> known still open". Then github_repos_create_commit_comment({owner, repo: name, commit_sha: HEAD, body: "❌ " + MARK + ": <N> new finding(s) at <short HEAD>" + (if N is 0: ", <count> known finding(s) still open") + ". — AEGIS " + NAME}).
-   5.2 For each finding, severity order ERROR > WARNING > INFO:
+   5.2 ONE fix per push. Order the findings: severity ERROR before WARNING before INFO; within the same severity, findings with a non-empty \`fix\` first, then those with a \`fix_hint\`, then the rest; then by start_line. FIXED = false. Walk them in that order, one at a time (sequentially, never in parallel: the remediator pushes to the repo):
        a. fingerprint in OPEN: skip, nothing to record.
        b. dismissed_before is true: the fleet already decided this is a false positive. Record dismissed and skip.
        c. aegis_triage({repo, sha: HEAD, agent: NAME, finding: <the finding object exactly as the scanner returned it, all fields, values unchanged (start_line/end_line numbers, severity as given)>}). Parse text as {confirmed, confidence, severity, cwe, title, impact, explanation, fix_suggestion}.
        d. If confirmed is false or confidence < 0.6: aegis_scanner_record_action({agent: NAME, repo, kind: "dismissed", ref: HEAD, fingerprint}). Next finding.
-       e. aegis_remediator({repo, sha: HEAD, agent: NAME, branch: BRANCH, finding: <same finding object>, triage: <the parsed triage object>}). Parse text as {issue_number, pr_number, fix_sha, verified, layers, notes}. The remediator files the Issue, opens the fix PR, proves the fix with the scanner's verify_fix (static + regression + targeted test), labels it aegis:verified and records every action itself. ISSUE = issue_number.
-   5.3 For every PR in ASSOCIATED_PRS: github_pulls_create_review({owner, repo: name, pull_number, event: "REQUEST_CHANGES", body: "AEGIS found <N> new security finding(s) at <short HEAD>:\\n" + one bullet per finding "- <severity> \`<rule_id>\` in \`<path>:<start_line>\` (#<issue>, or 'dismissed by triage', or 'known #<issue>')"}). Record pr_reviewed.
+       e. MODE = "fix" if FIXED is false, else "issue_only". aegis_remediator({repo, sha: HEAD, agent: NAME, branch: BRANCH, mode: MODE, finding: <same finding object>, triage: <the parsed triage object>}). Parse text as {issue_number, pr_number, fix_sha, merge_sha, verified, merged, layers, notes}. In mode "fix" the remediator gets the minimal patch from the scanner (fix_code), commits it on aegis/fix-<fingerprint>, proves it with verify_fix (static + regression + targeted test that fails on the vulnerable commit), writes one Issue with the whole story and, only when verified, opens the PR, labels it aegis:verified and merges it; it records every action itself. In mode "issue_only" it files the Issue only. ISSUE = issue_number. After the first call in mode "fix" (whatever its result: a failed patch still used this push's one fix slot) set FIXED = true.
+   5.3 For every PR in ASSOCIATED_PRS: github_pulls_create_review({owner, repo: name, pull_number, event: "REQUEST_CHANGES", body: "AEGIS found <N> new security finding(s) at <short HEAD>:\\n" + one bullet per finding "- <severity> \`<rule_id>\` in \`<path>:<start_line>\` (#<issue>, plus 'PR #<pr> verified and merged' / 'PR #<pr> verified, merge pending' / 'could not verify' when a PR was attempted; or 'dismissed by triage', or 'known #<issue>')"}). Record pr_reviewed.
    5.4 Run step 4.3 as well: a push can fix one finding while introducing another.
 
 6. Final answer
-   Line 1: one sentence, e.g. "UNSAFE vincivv/snipbox@a3f1c2d: 2 new finding(s), opened #12 #13, PR #14 (verified)." or "SAFE vincivv/snipbox@b7e2d9c: closed #12."
+   Line 1: one sentence, e.g. "UNSAFE vincivv/snipbox@a3f1c2d: 2 new finding(s), opened #12 #13, PR #14 (verified, merged as 9c1d2e3)." or "SAFE vincivv/snipbox@b7e2d9c: closed #12."
    Line 2: a single JSON object, nothing after it:
-   {"verdict": "safe"|"unsafe"|"ignored"|"error", "sha": "<HEAD>", "issues_opened": [n...], "issues_closed": [n...], "prs_opened": [n...], "prs_verified": [n...], "dismissed": ["<fingerprint>"...], "notes": "<empty, or the failures you hit, e.g. GitHub credentials not configured>"}
+   {"verdict": "safe"|"unsafe"|"ignored"|"error", "sha": "<HEAD>", "issues_opened": [n...], "issues_closed": [n...], "prs_opened": [n...], "prs_verified": [n...], "prs_merged": [n...], "dismissed": ["<fingerprint>"...], "notes": "<empty, or the failures you hit, e.g. GitHub credentials not configured>"}
 
 INLINE FALLBACK (only when a sub-agent call failed twice; do the same work yourself)
 F1. Instead of aegis_triage + aegis_remediator for one finding:

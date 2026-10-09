@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://api.fontshare.com">
 <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=9">
+<link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body>
 
@@ -63,10 +63,21 @@
         <svg id="map" viewBox="0 0 640 400" role="img" aria-label="Agents and the repositories they guard"></svg>
       </div>
       <div class="dark-card inc-card">
-        <div class="card-label"><span class="pill-y">Latest</span> <span id="incHint">Waiting for a push</span></div>
+        <div class="card-label"><span class="pill-y">Latest push</span> <span id="incHint">Waiting for a push</span></div>
         <div class="inc-title" id="incTitle">No incident yet</div>
         <ol class="steps-y" id="pipeline"></ol>
         <div class="inc-total" id="incTotal"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><h2>Agents.</h2><span class="sub" id="guildHint">Guild · connecting</span></div>
+    <div class="split agents-split">
+      <div class="agent-grid" id="cards"><div class="empty">Waiting for Guild…</div></div>
+      <div class="dark-card ho-card">
+        <div class="card-label"><span class="pill-y">Guard</span> <span id="hoHint">Agent → agent handoffs, checked by Semgrep</span></div>
+        <ul class="handoffs" id="handoffs"><li class="empty">No handoffs yet</li></ul>
       </div>
     </div>
   </section>
@@ -203,6 +214,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-k" id="toastK"></span><span class="toast-t" id="toastT"></span></div>
 <div class="tip" id="tip" hidden></div>
-<script src="/static/app.js?v=9"></script>
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>

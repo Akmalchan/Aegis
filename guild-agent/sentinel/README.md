@@ -9,8 +9,8 @@ scanner's `verdict` field; the LLM never overrides it.
 
 | verdict | commit status via `aegis_scanner_set_status` (context `AEGIS / security-check`) + commit comment | PR review | Issues |
 |---|---|---|---|
-| safe | `success` "no new findings" + ✅ comment | APPROVE | `aegis_verifier` closes every open `aegis` Issue whose `<!-- AEGIS-FP: … -->` fingerprint is gone (and sets `success` on the sha) |
-| unsafe | `failure` "N new finding(s)" + ❌ comment | REQUEST_CHANGES | per new finding (skips open fingerprints and `dismissed_before`): `aegis_triage` → if `confirmed && confidence >= 0.6` → `aegis_remediator`: Issue, fix PR on `aegis/fix-<fp>` when the finding carries a `fix`, then `verify_fix` → label `aegis:verified` + `success` on the fix sha ("fix verified: N layers") or a "could not verify" comment |
+| safe | `success` "no new findings" + ✅ comment | APPROVE | candidates = open `aegis` Issues whose `<!-- AEGIS-FP: … -->` fingerprint is not in the diff scan; one `scan_full` at HEAD, and `aegis_verifier` closes only those whose fingerprint is absent from the full scan too (a diff scan does not list findings the push left untouched) |
+| unsafe | `failure` "N new finding(s)" + ❌ comment | REQUEST_CHANGES | findings ordered ERROR > WARNING > INFO, `fix` then `fix_hint` first; per new finding (skips open fingerprints and `dismissed_before`): `aegis_triage` → if `confirmed && confidence >= 0.6` → `aegis_remediator`. The FIRST confirmed one gets `mode: "fix"` (scanner `fix_code` patch on `aegis/fix-<fp>` → `verify_fix` → one story Issue → if verified: PR + `aegis:verified` + **merge**); every other one gets `mode: "issue_only"`. One PR per push. |
 | error | `error` "scanner unavailable" + ⚠️ comment | none | none |
 
 Every GitHub write the sentinel makes itself is reported with `aegis_scanner_record_action` (sub-agents record
@@ -42,6 +42,17 @@ described by the gitignored `guild.json`), `package.json` + `tsconfig.json` (cop
 --agent-type GUILD_TYPESCRIPT --template LLM` generates, with placeholders; deploy.sh keeps the scaffold's own
 and only adds deps). Placeholders `__AGENT_NAME__`, `__OWNER__`, `__SCANNER_INTEGRATION__` are substituted by
 `fleet/deploy.sh`.
+
+## Final demo flow (S2, 14:16 PDT, sentinel version `01a12285-5f1e-cf83-0000-bf5fef9e3828`, remediator 1.0.6, scanner 1.2.0)
+
+One push → ❌ status from the scanner → triage confirms → remediator (mode `fix`) asks the scanner for the patch
+(`aegis_scanner_fix_code`, full file with only the flagged span changed), commits it on `aegis/fix-<fp>`, proves it
+with `verify_fix` (static / repo tests / targeted test that fails on the vulnerable sha), writes one Issue with the
+whole story, opens the PR, labels `aegis:verified`, merges it (`github_pulls_merge`, method `merge`) → the merge
+push on main fires the sentinel again → safe → ✅ on the merge commit → `scan_full` confirms the fingerprint is gone
+→ `aegis_verifier` closes the Issue. Other confirmed findings of the same push: Issue only (`mode: "issue_only"`).
+Self-trigger guard is ref-only: pushes/PRs on `aegis/*` are ignored, the merge commit on `main` is scanned.
+Final JSON now also carries `prs_merged`. Timings and the round log: `docs/LIVE-RUN.md`, "Round 3 (final flow)".
 
 ## Verified on 2026-10-09 (R1 review, real packages installed)
 

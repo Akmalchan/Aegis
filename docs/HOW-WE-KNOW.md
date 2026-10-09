@@ -35,6 +35,14 @@ A model-written patch is a hypothesis. `POST /verify` (`aegis/verify.py`) checks
 
 Run on `andriidrok1/aegis-demo-target` (`state/events.jsonl`): fix `9893db2` over base `0ad1fc1`, static 7975 ms, targeted test 256 ms, total 8232 ms, `verified: true`. Negative control with head = base: static false, targeted false, `verify_failed` after 4213 ms. A no-op fix is rejected.
 
+## 3b. Agents don't trust each other either
+
+Every artifact one agent hands another passes through Semgrep first (`aegis/guard.py`): the content is written to a temp file, scanned with `rules/` + `p/security-audit` + `p/secrets`, and recorded as `handoff_ok` / `handoff_rejected` (`from_agent->to_agent:kind`) in ClickHouse and in `GET /insights` under `handoffs`. Three handoffs are guarded without any agent change:
+
+- `POST /fix` guards its own patch (`semgrep-rule-fix` or `openai-fix` -> the remediator): `new_content` is scanned against the original file, and any finding not already present at the same rule + line text turns the answer into `ok: false`, `error: "patch rejected by Semgrep: <rule ids>"`, with the scan under `guard`. Live example: the `flask-debug-true` rule fix on `aegis-demo-target@0ad1fc1` is rejected because it leaves `host="0.0.0.0"` and so introduces `avoid_app_run_with_bad_host`, the exact regression the first live run only caught after the PR existed.
+- `POST /verify` guards the remediator's `test_code` (remediator -> scanner) before pytest ever runs it; a rejected test gives layer `targeted_test` `passed: false`, `details: "test rejected by Semgrep: <rule ids> (not executed)"`.
+- `POST /guard` (`guard_artifact`) is the explicit form for anything else: `kind: code|test|patch|rule`, `from_agent`, `to_agent`, `content`; `kind: rule` runs `semgrep --validate` plus an optional fixture the rule must fire on. Rules proposed through `POST /rules/propose` go through the same validation.
+
 ## 4. What the diff can miss, the full scan catches
 
 The diff scan sees only what a push introduced. `aegis-warden` runs on a Guild cron trigger (`*/30 * * * *`) and calls `scan_full` on every repo's default branch. Full scans add `supply_chain.scan` (vulnerable dependencies), run `p/secrets` over the whole tree, and close Issues whose fingerprint is gone.

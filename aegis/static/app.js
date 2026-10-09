@@ -216,6 +216,8 @@
   function loadFleet() {
     return getJSON("/api/fleet").then(function (d) {
       var agents = d.agents || [], n = 0;
+      fleetAgents = {};
+      agents.forEach(function (a) { fleetAgents[a.agent] = (a.repos || []).map(function (r) { return r.repo; }); });
       var sig = agents.map(function (a) { return a.agent + (a.repos || []).map(function (r) { return r.repo; }).join(); }).join("|");
       if (sig !== fleetSig) { fleetSig = sig; buildMap(agents); }
       agents.forEach(function (a) {
@@ -252,39 +254,121 @@
     $("heroState").textContent = anyAwake ? "Agent working now" : "Fleet on watch";
   }
 
-  /* ================= incident ================= */
+  /* ================= latest push: 8-step pipeline (port of Andrii's stepper) ================= */
+  function ghUrl(repo, kind, ref) {
+    if (!repo || !ref || /^local:/.test(repo)) return "";
+    var base = "https://github.com/" + repo;
+    return kind === "issue" ? base + "/issues/" + ref : kind === "pr" ? base + "/pull/" + ref : kind === "commit" ? base + "/commit/" + ref : base;
+  }
+  function link(url, text) { return url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(text) + "</a>" : esc(text); }
   var LABEL = { status_set: "Status set", issue_opened: "Issue opened", pr_opened: "Fix PR opened", pr_reviewed: "PR reviewed",
-    verified: "Fix verified", verify_failed: "Fix rejected", issue_closed: "Issue closed", dismissed: "Dismissed", denied: "Blocked by policy" };
+    verified: "Fix verified", verify_failed: "Fix rejected", issue_closed: "Issue closed", dismissed: "Dismissed", denied: "Blocked by policy",
+    fix_proposed: "Fix proposed", fix_failed: "Fix failed", handoff_ok: "Handoff ok", handoff_rejected: "Handoff rejected" };
   function paintIncident(events) {
-    var scans = events.filter(function (e) { return e.kind === "scan" && /^aegis-/.test(e.agent || ""); });
+    var scans = events.filter(function (e) { return e.kind === "scan" && e.repo; });
     if (!scans.length) return;
-    var anchor = scans.find(function (e) { return e.verdict === "unsafe" && Date.now() / 1000 - e.ts < 1800; }) || scans[0];
-    var evs = events.filter(function (e) { return e.repo === anchor.repo && e.ts >= anchor.ts - 1; }).sort(function (a, b) { return a.ts - b.ts; });
-    var groups = [], idx = {};
-    evs.forEach(function (e, i) {
-      var key = e.kind === "scan" ? (i === 0 ? "scan0" : "rescan") : e.kind;
-      if (idx[key] == null) { idx[key] = groups.length; groups.push({ kind: key, e: e, last: e, n: 0, refs: [] }); }
-      var g = groups[idx[key]]; g.last = e; g.n++; if (/^\d+$/.test(e.ref || "")) g.refs.push("#" + e.ref);
+    var now = Date.now() / 1000;
+    var anchor = scans.find(function (e) { return e.verdict === "unsafe" && now - e.ts < 1800; }) || scans[0];
+    var repo = anchor.repo;
+    var wake = events.find(function (e) { return e.kind === "wake" && e.repo === repo && e.ts <= anchor.ts + 1 && anchor.ts - e.ts < 120; });
+    var t0 = wake ? wake.ts : anchor.ts;
+    var evs = events.filter(function (e) { return e.repo === repo && e.ts >= t0 - 1; }).sort(function (a, b) { return a.ts - b.ts; });
+    function first(kind, pred) { return evs.find(function (e) { return e.kind === kind && (!pred || pred(e)); }); }
+    function last(kind, pred) { var r = null; evs.forEach(function (e) { if (e.kind === kind && (!pred || pred(e))) r = e; }); return r; }
+    var sha = anchor.sha || (wake && wake.sha) || "";
+    var issue = first("issue_opened"), issueClosed = last("issue_closed"), dismissed = first("dismissed");
+    var fix = last("fix_proposed"), fixFail = last("fix_failed"), ver = last("verified"), verFail = last("verify_failed");
+    var pr = first("pr_opened"), rescan = evs.filter(function (e) { return e.kind === "scan" && e !== anchor; }).pop();
+    var green = last("status_set", function (e) { return e.state === "success" && e.ts > anchor.ts; });
+    var unsafe = anchor.verdict === "unsafe", steps = [];
+    steps.push({ label: "Push", ev: wake || anchor, cls: "done", link: sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "" });
+    steps.push({ label: "Semgrep scan", ev: anchor, cls: "done " + (unsafe ? "bad" : ""), meta: (anchor.n_findings || 0) + " finding" + (anchor.n_findings === 1 ? "" : "s") + " · " + fmtMs(anchor.ms || anchor.total_ms) });
+    if (!unsafe) {
+      steps.push({ label: "Validated", cls: "done", ev: anchor, meta: "clean" });
+      steps.push({ label: "Commit green", cls: green ? "done" : "", ev: green, meta: green ? "✓" : "–" });
+    } else {
+      var validated = issue || fix || dismissed;
+      steps.push({ label: "Validated", cls: validated ? "done" : "active", ev: validated, meta: dismissed && !issue ? "false positive" : validated ? "triage confirmed" : "triage running…" });
+      var fx = fix || fixFail;
+      steps.push({ label: "Fix", cls: fix ? "done" : fixFail ? "done bad" : validated ? "active" : "", ev: fx,
+        meta: fx ? [fx.model === "semgrep-rule-fix" ? "rule autofix" : fx.model || "llm", fixFail && !fix ? "failed" : ""].filter(Boolean).join(" · ") : validated ? "writing patch…" : "–" });
+      var vr = ver || verFail;
+      steps.push({ label: "Re-check", cls: ver ? "done" : verFail ? "done bad" : fx ? "active" : "", ev: vr, meta: vr ? (ver ? "verified" : "rejected") : fx ? "verifying…" : "–" });
+      steps.push({ label: "Issue", cls: issue ? "done" + (issueClosed ? "" : " bad") : "", ev: issue, meta: issue ? (issueClosed ? "closed" : "open") : "–", link: issue ? link(ghUrl(repo, "issue", issue.ref), "#" + issue.ref) : "" });
+      steps.push({ label: "Decision", cls: pr ? "done" + (verFail ? " bad" : "") : fixFail && !fix ? "done bad" : "", ev: pr || (fixFail && !fix ? fixFail : null),
+        meta: pr ? (ver ? "PR verified" : verFail ? "PR rejected" : "PR open") : fixFail && !fix ? "no safe patch" : "–", link: pr ? link(ghUrl(repo, "pr", pr.ref), "PR #" + pr.ref) : "" });
+      var merged = issueClosed || (green && rescan && rescan.verdict === "safe");
+      steps.push({ label: "Merged & green", cls: merged ? "done" : pr ? "active" : "", ev: merged ? (issueClosed || green) : null, meta: merged ? "rescan clean" : pr ? "waiting for merge…" : "–" });
+    }
+    var v = unsafe ? "unsafe" : "safe";
+    setHTML($("incTitle"), esc(short(repo)) + '<span class="v ' + v + '">' + v + "</span>");
+    $("incHint").textContent = agentName(anchor.agent) + " · " + ago(t0);
+    var lastDone = -1;
+    steps.forEach(function (st, i) { if (/done/.test(st.cls)) lastDone = i; });
+    setHTML($("pipeline"), steps.map(function (st, i) {
+      var cls = st.cls + (i === lastDone ? " last" : "");
+      return '<li class="' + cls + '"><span class="n">' + (i + 1) + "</span><span>" + esc(st.label) + ' <span class="m">' + esc(st.meta || "") + (st.link ? " " + st.link : "") +
+        '</span></span><span class="m">' + (st.ev ? "+" + fmtDur(Math.max(0, st.ev.ts - t0)) : "") + "</span></li>";
+    }).join(""));
+    var done = issueClosed || ver, end = evs[evs.length - 1].ts;
+    setHTML($("incTotal"), done ? "<span>Detect → fix → verify</span><b>" + fmtDur(end - t0) + "</b>"
+      : unsafe ? "<span>Since push</span><b>" + fmtDur(now - t0) + "</b>" : "<span>Clean push, scanned in</span><b>" + fmtMs(anchor.total_ms) + "</b>");
+  }
+
+  /* ================= Guild agents + handoff guard (port of Andrii's control room) ================= */
+  var ROLE_AGENTS = { "aegis-triage": "validates findings", "aegis-remediator": "writes the fix", "aegis-verifier": "proves the fix", "aegis-warden": "fleet cron · insights",
+    "aegis-rulesmith": "learns new rules", "aegis-reporter": "writes the report", "aegis-onboarder": "adds repos" };
+  var fleetAgents = {}, knownSessions = null;
+  function paintCards(d) {
+    var byAgent = {};
+    (d.agents || []).forEach(function (a) { byAgent[a.agent] = a; });
+    var names = Object.keys(fleetAgents).concat(Object.keys(ROLE_AGENTS));
+    Object.keys(byAgent).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
+    var html = "", lastGroup = "";
+    names.forEach(function (name) {
+      var group = fleetAgents[name] ? "Sentinels · one per 3 repos" : "Role agents";
+      if (group !== lastGroup) { html += '<div class="grp">' + esc(group) + "</div>"; lastGroup = group; }
+      var a = byAgent[name], cur = a && (a.current || a.latest), st = a ? a.state : "never";
+      var cls = st === "working" ? "working" : (cur && cur.status === "failed") ? "failed" : a ? "done" : "never";
+      var sub = fleetAgents[name] ? fleetAgents[name].map(short).join(", ") : (ROLE_AGENTS[name] || "");
+      var status = st === "working" ? "working" : cur ? (cur.status === "failed" ? "failed " : "") + ago(cur.created_at) : "idle";
+      var tool = "";
+      if (cur) {
+        var t = cur.last_tool_call;
+        tool = (t ? esc(t.name) : esc(cur.note || cur.event || "")) + (cur.repo ? " · " + esc(short(cur.repo)) : "") + link(cur.session_url, "session ↗");
+      }
+      html += '<div class="ag ' + cls + '"><div class="top"><span class="led"></span><b>' + esc(agentName(name).replace(/^aegis-/, "")) + '</b><span class="st">' + esc(status) +
+        "</span></div>" + (sub ? "<small>" + esc(sub) + "</small>" : "") + (tool ? '<div class="tool">' + tool + "</div>" : "") + "</div>";
     });
-    var v = anchor.verdict === "unsafe" ? "unsafe" : "safe";
-    setHTML($("incTitle"), esc(short(anchor.repo)) + '<span class="v ' + v + '">' + v + "</span>");
-    $("incHint").textContent = agentName(anchor.agent) + " · " + ago(anchor.ts);
-    var html = groups.map(function (g, i) {
-      var label, meta = "", cls = "done";
-      if (g.kind === "scan0") { label = "Push scanned"; meta = (g.e.n_findings || 0) + " findings · " + fmtMs(g.e.total_ms); if (v === "unsafe") cls += " bad"; }
-      else if (g.kind === "rescan") { label = "Re-scanned"; meta = g.n + "×"; }
-      else { label = (LABEL[g.kind] || g.kind) + (g.n > 1 ? " ×" + g.n : ""); meta = g.refs.slice(0, 3).join(" "); if (g.kind === "issue_opened" || g.kind === "denied") cls += " bad"; }
-      if (i === groups.length - 1) cls += " last";
-      return '<li class="' + cls + '"><span class="n">' + (i + 1) + "</span><span>" + esc(label) + ' <span class="m">' + esc(meta) +
-        '</span></span><span class="m">+' + fmtDur(g.last.ts - anchor.ts) + "</span></li>";
-    }).join("");
-    var closed = groups.some(function (g) { return g.kind === "issue_closed" || g.kind === "verified"; });
-    if (!closed && v === "unsafe") html += '<li><span class="n">' + (groups.length + 1) + "</span><span>Waiting for the fix</span><span></span></li>";
-    setHTML($("pipeline"), html);
-    var span = evs[evs.length - 1].ts - anchor.ts;
-    setHTML($("incTotal"), closed ? "<span>Detect → fix → verify</span><b>" + fmtDur(span) + "</b>"
-      : v === "unsafe" ? "<span>Since push</span><b>" + fmtDur(Date.now() / 1000 - anchor.ts) + "</b>"
-      : "<span>Clean push, scanned in</span><b>" + fmtMs(anchor.total_ms) + "</b>");
+    setHTML($("cards"), html || '<div class="empty">No agents</div>');
+  }
+  function loadGuild() {
+    return getJSON("/api/guild").then(function (d) {
+      if (!d.ok) { $("guildHint").textContent = "Guild · offline on this host"; paintCards({ agents: [] }); return; }
+      var sessions = d.sessions || [], working = sessions.filter(function (s) { return s.status === "working"; }).length;
+      $("guildHint").textContent = "Guild · live · " + working + " awake · " + sessions.length + " sessions";
+      paintCards(d);
+      if (knownSessions) {
+        var fresh = sessions.filter(function (s) { return !knownSessions[s.id] && Date.now() / 1000 - s.created_at < 120; });
+        if (fresh.length) { pulse(LIME); toast(false, "Agent woke up", agentName(fresh[0].agent) + (fresh[0].repo ? " · " + short(fresh[0].repo) : "")); }
+      }
+      knownSessions = knownSessions || {};
+      sessions.forEach(function (s) { knownSessions[s.id] = 1; });
+    }).catch(function () { $("guildHint").textContent = "Guild · offline"; });
+  }
+  function loadHandoffs() {
+    return getJSON("/api/handoffs").then(function (d) {
+      var rows = (d.handoffs || []).slice(0, 7);
+      $("hoHint").textContent = rows.length ? rows.length + " handoffs checked by Semgrep" : "Agent → agent handoffs, checked by Semgrep";
+      setHTML($("handoffs"), rows.length ? rows.map(function (h) {
+        var m = /^(.+?)->(.+?):(.+)$/.exec(String(h.ref || ""));
+        var from = h.agent || (m && m[1]) || "?", to = h.to_agent || (m && m[2]) || "?", what = h.artifact || (m && m[3]) || "";
+        var rejected = h.kind === "handoff_rejected" || h.verdict === "rejected" || h.ok === false;
+        return '<li class="' + (rejected ? "rejected" : "ok") + '"><span class="ha">' + esc(agentName(from)) + " <b>→</b> " + esc(agentName(to)) + (what ? " · " + esc(what) : "") +
+          '</span><span class="hv">' + (rejected ? "rejected" : "ok") + '</span><span class="hm">' + ago(h.ts) + " · " + esc(short(h.repo)) +
+          (h.reason ? " · " + esc(h.reason) : "") + (h.rule_id ? " · " + esc(ruleShort(h.rule_id)) : "") + "</span></li>";
+      }).join("") : '<li class="empty">No handoffs yet</li>');
+    }).catch(function () {});
   }
 
   /* ================= feed + reactions ================= */
@@ -577,4 +661,6 @@
   every(loadInsights, 15000);
   every(loadTimeline, 60000);
   every(loadPatrol, 1500);
+  every(loadGuild, 4000);
+  every(loadHandoffs, 5000);
 })();

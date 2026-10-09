@@ -246,6 +246,222 @@ def api_alerts(hours: int = Query(48, ge=1, le=24 * 30)):
     return {"ch": True, "alerts": out}
 
 
+# ---------- Guild live feed (background poller over the `guild` CLI) ----------
+import json as _json
+import shutil as _shutil
+import subprocess as _sp
+import threading as _th
+from concurrent.futures import ThreadPoolExecutor as _Pool
+
+_GUILD_OWNER = config.GUILD_OWNER or "andriidrok1"
+_GUILD_POLL_S = 4.0
+_TERMINAL = {"DONE", "ERROR", "CANCELLED", "CANCELED", "FAILED", "INTERRUPTED"}
+_guild_lock = _th.Lock()
+_guild = {"ok": False, "error": "not polled yet", "sessions": [], "agents": {}, "polled_at": 0.0}
+_guild_tasks: dict[str, dict] = {}   # session id -> {"status", "tasks", "fetched_at", "note"}
+_guild_thread: _th.Thread | None = None
+
+
+def _guild_cli(*args: str, timeout: float = 20.0):
+    """Run `guild --mode json ...`; returns parsed JSON or raises."""
+    exe = _shutil.which("guild")
+    if not exe:
+        raise RuntimeError("guild CLI not on PATH")
+    p = _sp.run([exe, "--mode", "json", *args], capture_output=True, text=True, timeout=timeout)
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr or p.stdout).strip()[:200] or f"guild exit {p.returncode}")
+    return _json.loads(p.stdout)
+
+
+def _iso_ts(s) -> float:
+    try:
+        return _dt.datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _guild_agents() -> dict[str, str]:
+    """agent id -> name, cached for the process lifetime (refreshed every 10 min)."""
+    now = time.time()
+    with _guild_lock:
+        cached = _guild["agents"]
+        if cached and now - cached.get("_at", 0) < 600:
+            return cached
+    try:
+        d = _guild_cli("agent", "list", "--owner", _GUILD_OWNER)
+        m = {a.get("id"): a.get("name") for a in d.get("items", []) if a.get("id")}
+    except Exception as e:  # noqa: BLE001
+        log.warning("guild agent list failed: %s", e)
+        m = {}
+    m["_at"] = now
+    with _guild_lock:
+        _guild["agents"] = m
+    return m
+
+
+def _fetch_tasks(sid: str, want_note: bool = True) -> dict:
+    """Session root status + tool calls via `guild session tasks`; falls back to events for the thought text."""
+    out = {"status": "UNKNOWN", "tasks": [], "fetched_at": time.time(), "note": ""}
+    try:
+        d = _guild_cli("session", "tasks", sid, "--limit", "30")
+        items = d.get("items", []) if isinstance(d, dict) else []
+        roots = [t for t in items if t.get("entity_type") == "EntTaskAgent" and not t.get("parent_task_id")]
+        agent_tasks = [t for t in items if t.get("entity_type") == "EntTaskAgent"]
+        if roots:
+            out["status"] = str(roots[0].get("status") or "UNKNOWN").upper()
+        elif agent_tasks:
+            out["status"] = str(agent_tasks[-1].get("status") or "UNKNOWN").upper()
+        tools = [t for t in items if t.get("entity_type") == "EntTaskTool"]
+        tools.sort(key=lambda t: _iso_ts(t.get("created_at")))
+        out["tasks"] = [{"name": t.get("tool_name"), "status": str(t.get("status") or "").upper(),
+                         "http": t.get("http_status_code"), "ts": _iso_ts(t.get("created_at")),
+                         "req": t.get("request_bytes"), "res": t.get("response_bytes")} for t in tools][-12:]
+        # a sub-agent still running keeps the session alive even if the root says DISPATCHED
+        if any(str(t.get("status")).upper() in ("STARTED", "RUNNING") for t in items):
+            out["status"] = "STARTED"
+    except Exception as e:  # noqa: BLE001
+        out["error"] = str(e)[:120]
+    if not want_note or out["status"] in _TERMINAL:
+        return out
+    try:
+        d = _guild_cli("session", "events", sid, "--limit", "30")
+        for e in reversed(d.get("items", []) if isinstance(d, dict) else []):
+            c = e.get("content") or {}
+            txt = c.get("text") if isinstance(c, dict) else None
+            if txt:
+                first = next((ln.strip("* ").strip() for ln in str(txt).splitlines() if ln.strip()), "")
+                out["note"] = first[:90]
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _guild_poll_once() -> None:
+    agents = _guild_agents()
+    try:
+        d = _guild_cli("session", "list", "--limit", "15")
+    except Exception as e:  # noqa: BLE001
+        with _guild_lock:
+            _guild.update(ok=False, error=str(e)[:160], polled_at=time.time())
+        return
+    items = d.get("items", []) if isinstance(d, dict) else []
+    _publish(items, agents)   # first paint: session list only, tasks come from cache
+    now = time.time()
+    need = []
+    for s in sorted(items, key=lambda x: _iso_ts(x.get("created_at")), reverse=True):
+        sid = s.get("id")
+        cur = _guild_tasks.get(sid)
+        created = _iso_ts(s.get("created_at"))
+        fresh = now - created < 3600
+        if cur is None or (cur["status"] not in _TERMINAL and (fresh or now - cur["fetched_at"] > 60)):
+            need.append((sid, created, fresh))
+    need = need[:6]   # at most 6 sessions per poll; the rest catch up on the next tick
+    if need:
+        with _Pool(max_workers=6) as pool:
+            for (sid, created, fresh), res in zip(need, pool.map(lambda x: _fetch_tasks(x[0], x[2]), need)):
+                if res["status"] not in _TERMINAL and not fresh:
+                    res["stale"] = True   # old session that never reported a terminal state: treat as done
+                _guild_tasks[sid] = res
+        _publish(items, agents)
+
+
+def _publish(items: list, agents: dict) -> None:
+    sessions = []
+    for s in items:
+        sid = s.get("id")
+        trig = s.get("trigger") or {}
+        ag = trig.get("agent") or {}
+        name = ag.get("name") or agents.get(s.get("agent_id") or "") or s.get("agent_id") or "?"
+        t = _guild_tasks.get(sid) or {"status": "UNKNOWN", "tasks": [], "note": ""}
+        last = t["tasks"][-1] if t.get("tasks") else None
+        st = t.get("status", "UNKNOWN")
+        if t.get("stale"):
+            st = "DONE"
+        status = "working" if st in ("STARTED", "RUNNING", "DISPATCHED", "PENDING", "QUEUED") else (
+            "failed" if st in ("ERROR", "FAILED") else "done" if st in _TERMINAL else "unknown")
+        if status == "unknown" and time.time() - _iso_ts(s.get("created_at")) < 900:
+            status = "working"   # young session we have not inspected yet: assume awake until proven otherwise
+        repo = (trig.get("service_config") or {}).get("repo") or ""
+        sessions.append({
+            "id": sid, "agent": name, "agent_id": ag.get("id") or s.get("agent_id"), "status": status, "raw_status": st,
+            "created_at": _iso_ts(s.get("created_at")), "last_activity_at": _iso_ts(s.get("last_activity_at")),
+            "event": trig.get("event_type") or s.get("session_type") or "", "action": trig.get("action") or "",
+            "repo": repo, "trigger_name": trig.get("name") or "",
+            "last_tool_call": {"name": last["name"], "status": last["status"], "args": _tool_args(last, t), "ts": last["ts"]} if last else None,
+            "tools": [x["name"] for x in (t.get("tasks") or [])],
+            "n_tools": len(t.get("tasks") or []), "note": t.get("note", ""),
+            "session_url": s.get("session_url") or f"https://app.guild.ai/sessions/{sid}",
+        })
+    with _guild_lock:
+        _guild.update(ok=True, error="", sessions=sessions, polled_at=time.time())
+
+
+def _tool_args(last: dict, t: dict) -> str:
+    bits = []
+    if last.get("http"):
+        bits.append(f"http {last['http']}")
+    if last.get("req"):
+        bits.append(f"{last['req']} B in")
+    if last.get("res"):
+        bits.append(f"{last['res']} B out")
+    return " · ".join(bits)
+
+
+def _guild_loop() -> None:
+    while True:
+        t0 = time.time()
+        try:
+            _guild_poll_once()
+        except Exception as e:  # noqa: BLE001
+            log.warning("guild poll failed: %s", e)
+            with _guild_lock:
+                _guild.update(ok=False, error=str(e)[:160], polled_at=time.time())
+        time.sleep(max(1.0, _GUILD_POLL_S - (time.time() - t0)))
+
+
+def _ensure_guild_thread() -> None:
+    global _guild_thread
+    if _guild_thread is None or not _guild_thread.is_alive():
+        _guild_thread = _th.Thread(target=_guild_loop, name="aegis-guild-poll", daemon=True)
+        _guild_thread.start()
+
+
+@router.get("/api/guild", tags=["dashboard"])
+def api_guild():
+    """Live Guild sessions: who is awake, what tool it is calling, link to the session. Never 500s."""
+    _ensure_guild_thread()
+    with _guild_lock:
+        snap = dict(_guild)
+    sessions = list(snap.get("sessions") or [])
+    by_agent: dict[str, dict] = {}
+    for s in sorted(sessions, key=lambda x: x.get("created_at") or 0, reverse=True):
+        a = by_agent.setdefault(s["agent"], {"agent": s["agent"], "state": "idle", "sessions": 0, "latest": None})
+        a["sessions"] += 1
+        if a["latest"] is None:
+            a["latest"] = s
+        if s["status"] == "working":
+            a["state"] = "working"
+            a["current"] = s
+    return {"ok": bool(snap.get("ok")), "error": snap.get("error") or "", "polled_at": snap.get("polled_at") or 0,
+            "poll_s": _GUILD_POLL_S, "sessions": sessions, "agents": list(by_agent.values())}
+
+
+@router.get("/api/handoffs", tags=["dashboard"])
+def api_handoffs(n: int = Query(200, ge=1, le=1000)):
+    """Agent-to-agent handoffs the guard validated (kind handoff_ok / handoff_rejected / handoff)."""
+    events, src = _events(n)
+    rows = [e for e in events if str(e.get("kind", "")).startswith("handoff")]
+    return {"source": src, "handoffs": rows[:40]}
+
+
+# start polling at import so the first page load already has data
+try:
+    _ensure_guild_thread()
+except Exception as _e:  # noqa: BLE001
+    log.warning("guild poll thread not started: %s", _e)
+
+
 @router.get("/api/breakdown", tags=["dashboard"])
 def api_breakdown():
     """Findings by severity, top rules and top repos, across everything ClickHouse remembers."""

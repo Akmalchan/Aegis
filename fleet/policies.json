@@ -33,8 +33,8 @@
       "resources": {
         "repos": [
           "andriidrok1/aegis-demo-target",
-          "vincivv/aegis-target-01",
-          "vincivv/snipbox"
+          "andriidrok1/aegis-target-01",
+          "andriidrok1/snipbox"
         ]
       },
       "note": "aegis-sentinel-01 may act only on its 3 repos"
@@ -51,12 +51,12 @@
       "resources": {
         "repos": [
           "Akmalchan/Aegis",
-          "vincivv/aegis-target-04",
-          "vincivv/aegis-target-05",
-          "vincivv/aegis-target-06",
-          "vincivv/aegis-target-07",
-          "vincivv/aegis-target-08",
-          "vincivv/aegis-target-09"
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06",
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09"
         ]
       },
       "note": "aegis-sentinel-01: all operations denied on every other fleet repo"
@@ -88,9 +88,9 @@
       ],
       "resources": {
         "repos": [
-          "vincivv/aegis-target-04",
-          "vincivv/aegis-target-05",
-          "vincivv/aegis-target-06"
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06"
         ]
       },
       "note": "aegis-sentinel-02 may act only on its 3 repos"
@@ -108,11 +108,11 @@
         "repos": [
           "Akmalchan/Aegis",
           "andriidrok1/aegis-demo-target",
-          "vincivv/aegis-target-01",
-          "vincivv/aegis-target-07",
-          "vincivv/aegis-target-08",
-          "vincivv/aegis-target-09",
-          "vincivv/snipbox"
+          "andriidrok1/aegis-target-01",
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09",
+          "andriidrok1/snipbox"
         ]
       },
       "note": "aegis-sentinel-02: all operations denied on every other fleet repo"
@@ -144,9 +144,9 @@
       ],
       "resources": {
         "repos": [
-          "vincivv/aegis-target-07",
-          "vincivv/aegis-target-08",
-          "vincivv/aegis-target-09"
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09"
         ]
       },
       "note": "aegis-sentinel-03 may act only on its 3 repos"
@@ -164,11 +164,11 @@
         "repos": [
           "Akmalchan/Aegis",
           "andriidrok1/aegis-demo-target",
-          "vincivv/aegis-target-01",
-          "vincivv/aegis-target-04",
-          "vincivv/aegis-target-05",
-          "vincivv/aegis-target-06",
-          "vincivv/snipbox"
+          "andriidrok1/aegis-target-01",
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06",
+          "andriidrok1/snipbox"
         ]
       },
       "note": "aegis-sentinel-03: all operations denied on every other fleet repo"
@@ -192,14 +192,14 @@
         "repos": [
           "Akmalchan/Aegis",
           "andriidrok1/aegis-demo-target",
-          "vincivv/aegis-target-01",
-          "vincivv/aegis-target-04",
-          "vincivv/aegis-target-05",
-          "vincivv/aegis-target-06",
-          "vincivv/aegis-target-07",
-          "vincivv/aegis-target-08",
-          "vincivv/aegis-target-09",
-          "vincivv/snipbox"
+          "andriidrok1/aegis-target-01",
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06",
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09",
+          "andriidrok1/snipbox"
         ]
       },
       "note": "warden reads every fleet repo, writes the drift report issue"
