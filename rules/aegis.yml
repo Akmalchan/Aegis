@@ -1,0 +1,55 @@
+rules:
+  - id: aegis.sql-string-concat
+    languages: [python]
+    severity: ERROR
+    message: SQL query built by string concatenation/format with user-controlled data. Use parameterized queries.
+    metadata: { cwe: "CWE-89", category: security }
+    patterns:
+      - pattern-either:
+          - pattern: $CUR.execute("..." + $X, ...)
+          - pattern: $CUR.execute("..." + $X + "...", ...)
+          - pattern: $CUR.execute(f"...", ...)
+          - pattern: $CUR.execute("...".format(...), ...)
+          - pattern: $CUR.execute("..." % $X, ...)
+  - id: aegis.hardcoded-secret
+    languages: [python]
+    severity: ERROR
+    message: Hard-coded secret/credential in source. Move to environment or a secrets manager.
+    metadata: { cwe: "CWE-798", category: security }
+    patterns:
+      - pattern-either:
+          - pattern: $KEY = "..."
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(secret|password|passwd|api_key|apikey|token|private_key).*
+      - pattern-not: $KEY = ""
+  - id: aegis.flask-debug-true
+    languages: [python]
+    severity: WARNING
+    message: Flask app started with debug=True exposes the Werkzeug debugger (remote code execution if reachable).
+    metadata: { cwe: "CWE-489", category: security }
+    pattern: $APP.run(..., debug=True, ...)
+  - id: aegis.subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess with shell=True and dynamic input enables command injection.
+    metadata: { cwe: "CWE-78", category: security }
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$F(..., shell=True, ...)
+      - pattern-not: subprocess.$F("...", shell=True, ...)
+  - id: aegis.yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: yaml.load without SafeLoader deserializes arbitrary objects.
+    metadata: { cwe: "CWE-502", category: security }
+    patterns:
+      - pattern: yaml.load($X)
+  - id: aegis.eval-user-input
+    languages: [python]
+    severity: ERROR
+    message: eval() on dynamic input allows arbitrary code execution.
+    metadata: { cwe: "CWE-95", category: security }
+    patterns:
+      - pattern: eval($X)
+      - pattern-not: eval("...")

@@ -1,0 +1,11 @@
+{
+  "name": "aegis-analyst",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@guildai/agents-sdk": "latest",
+    "@guildai-services/guildai~github": "latest",
+    "zod": "~4.3.0"
+  }
+}

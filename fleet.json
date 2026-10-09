@@ -1,0 +1,7 @@
+{
+  "agents": {
+    "aegis-01": ["andriidrok1/aegis-demo-target"],
+    "aegis-02": [],
+    "aegis-03": []
+  }
+}
