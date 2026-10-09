@@ -1,0 +1,211 @@
+rules:
+  # ---------------------------------------------------------------- command injection
+  - id: aegis.js-child-process-exec-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: child_process exec/execSync with a dynamically built command string runs through a shell (command injection).
+    metadata:
+      cwe: "CWE-78"
+      category: security
+      fix_hint: >-
+        Use execFile/execFileSync (or spawn) with the binary and an argument array, e.g.
+        execFile("ping", ["-c", "1", host], cb). Never build shell strings from input.
+    patterns:
+      - pattern-either:
+          - pattern: require("child_process").$EXEC($CMD, ...)
+          - pattern: child_process.$EXEC($CMD, ...)
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $CP = require("child_process");
+                      ...
+                  - pattern-inside: |
+                      import $CP from "child_process";
+                      ...
+                  - pattern-inside: |
+                      import * as $CP from "child_process";
+                      ...
+              - pattern: $CP.$EXEC($CMD, ...)
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      const {..., $EXEC, ...} = require("child_process");
+                      ...
+                  - pattern-inside: |
+                      import {..., $EXEC, ...} from "child_process";
+                      ...
+              - pattern: $EXEC($CMD, ...)
+      - metavariable-regex:
+          metavariable: $EXEC
+          regex: ^(exec|execSync)$
+      - metavariable-pattern:
+          metavariable: $CMD
+          pattern-either:
+            - pattern: '`...${...}...`'
+            - pattern: '"..." + $X'
+            - pattern: '$X + "..."'
+
+  # ---------------------------------------------------------------- secrets
+  - id: aegis.js-hardcoded-secret
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Hard-coded secret/credential in source. Move to environment (process.env) or a secrets manager.
+    metadata:
+      cwe: "CWE-798"
+      category: security
+      fix_hint: >-
+        const NAME = process.env.NAME; (fail at startup if it is missing) and rotate the leaked
+        credential - it is still in git history.
+    patterns:
+      - pattern-either:
+          - patterns:
+              # also matches const/let/var declarations
+              - pattern: $KEY = "..."
+              - pattern-not: $KEY = ""
+          # object property: report on the property line, not the whole object
+          - patterns:
+              - pattern: '{..., $KEY: $V, ...}'
+              - metavariable-pattern:
+                  metavariable: $V
+                  pattern: '"..."'
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: ^["'`].+["'`]$
+              - focus-metavariable: $V
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(secret|password|passwd|api_?key|token|private_?key).*
+
+  # ---------------------------------------------------------------- code injection
+  - id: aegis.js-eval-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: eval() on a non-literal value allows arbitrary code execution.
+    metadata:
+      cwe: "CWE-95"
+      category: security
+      fix_hint: Parse data with JSON.parse() or use an explicit lookup table instead of eval().
+    patterns:
+      - pattern: eval($X)
+      - pattern-not: eval("...")
+
+  - id: aegis.js-new-function
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Function constructor with a non-literal body is eval() in disguise (arbitrary code execution).
+    metadata:
+      cwe: "CWE-95"
+      category: security
+      fix_hint: Replace dynamic code generation with ordinary functions or a lookup table; never compile input.
+    patterns:
+      - pattern-either:
+          - pattern: new Function(..., $BODY)
+          - pattern: Function(..., $BODY)
+      - pattern-not: new Function(..., "...")
+      - pattern-not: Function(..., "...")
+
+  # ---------------------------------------------------------------- XSS
+  - id: aegis.js-reflected-xss
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Request data (req.query/params/body) is written straight into the HTTP response (reflected XSS).
+    metadata:
+      cwe: "CWE-79"
+      category: security
+      fix_hint: >-
+        HTML-escape the value (e.g. escape-html) before sending, or return it as JSON with res.json(...)
+        so the browser never renders it as markup.
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern: $REQ.$SRC
+          - metavariable-regex:
+              metavariable: $REQ
+              regex: ^(req|request)$
+          - metavariable-regex:
+              metavariable: $SRC
+              regex: ^(query|params|body)$
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: escape(...)
+          - pattern: escapeHtml(...)
+          - pattern: encodeURIComponent(...)
+          - pattern: $X.escape(...)
+          - pattern: $X.sanitize(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RES.send($ARG)
+              - pattern: $RES.write($ARG, ...)
+          - metavariable-regex:
+              metavariable: $RES
+              regex: ^(res|resp|response)$
+          - focus-metavariable: $ARG
+
+  # ---------------------------------------------------------------- JWT
+  - id: aegis.js-jwt-none-algorithm
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: jwt.verify accepts the "none" algorithm, so unsigned tokens are trusted (authentication bypass).
+    metadata:
+      cwe: "CWE-347"
+      category: security
+      fix_hint: >-
+        Pin the real algorithm, e.g. jwt.verify(token, key, { algorithms: ["HS256"] }).
+    pattern: '$JWT.verify(..., {..., algorithms: [..., "none", ...], ...}, ...)'
+
+  # ---------------------------------------------------------------- SQL / NoSQL injection
+  - id: aegis.js-sql-string-concat
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: SQL built by string concatenation/template literal (knex.raw / sequelize.query / db.query). Use bindings.
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      fix_hint: >-
+        Use placeholders + bindings: knex.raw("... WHERE id = ?", [id]);
+        sequelize.query("... WHERE id = :id", { replacements: { id } }); db.query("... = $1", [id]).
+    patterns:
+      - pattern-either:
+          # knex raw fragments: any dynamic string is suspect
+          - pattern: $DB.raw($Q, ...)
+          - patterns:
+              - pattern: $DB.$RAW($Q, ...)
+              - metavariable-regex:
+                  metavariable: $RAW
+                  regex: ^(whereRaw|orWhereRaw|havingRaw|orderByRaw|joinRaw|groupByRaw)$
+          # generic .query(): only when the string actually looks like SQL
+          - patterns:
+              - pattern: $DB.query($Q, ...)
+              - metavariable-regex:
+                  metavariable: $Q
+                  regex: (?is).*\b(select|insert|update|delete|where|from|values|order\s+by)\b.*
+      - metavariable-pattern:
+          metavariable: $Q
+          pattern-either:
+            - pattern: '`...${...}...`'
+            - pattern: '"..." + $X'
+            - pattern: '$X + "..."'
+
+  - id: aegis.js-nosql-where-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: MongoDB $where built from a dynamic string executes attacker-influenced JavaScript on the database.
+    metadata:
+      cwe: "CWE-943"
+      category: security
+      fix_hint: >-
+        Replace $where with ordinary query operators, e.g. { name: String(req.query.name) }.
+    patterns:
+      - pattern-either:
+          - pattern: '{..., $W: $V, ...}'
+          - pattern: $Q.$W($V)
+      - metavariable-regex:
+          metavariable: $W
+          regex: ^["']?\$where["']?$
+      - metavariable-pattern:
+          metavariable: $V
+          pattern-either:
+            - pattern: '`...${...}...`'
+            - pattern: '"..." + $X'
+            - pattern: '$X + "..."'
