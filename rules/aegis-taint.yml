@@ -1,0 +1,50 @@
+rules:
+  - id: aegis.taint-request-to-sql
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "Request data flows into a SQL query without parameterization."
+    metadata: {cwe: "CWE-89", category: security, fix_hint: Bind the value as a query parameter.}
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.args.get(...)
+          - pattern: request.args[...]
+          - pattern: request.form.get(...)
+          - pattern: request.form[...]
+          - pattern: request.get_json(...)
+    pattern-sanitizers:
+      - pattern: int(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CUR.execute($Q, ...)
+              - pattern: $CUR.executescript($Q)
+          - focus-metavariable: $Q
+  - id: aegis.taint-llm-output-to-exec
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "LLM response reaches a code/command/SQL sink. Model output is attacker-influenced data, never a command."
+    metadata: {cwe: "CWE-94", category: security, subcategory: ai-generated-code,
+               fix_hint: Parse the model output into a typed structure with an allowlist before executing anything.}
+    pattern-sources:
+      - pattern-either:
+          - pattern: $CLIENT.chat.completions.create(...)
+          - pattern: $CLIENT.messages.create(...)
+          - pattern: $MODEL.generate_content(...).text
+          - pattern: $CHAIN.invoke(...)
+          - pattern: ollama.chat(...)
+    pattern-sanitizers:
+      - pattern: json.loads(...)
+      - pattern: shlex.quote(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: eval($X)
+              - pattern: exec($X)
+              - pattern: os.system($X)
+              - pattern: subprocess.$F($X, ...)
+              - pattern: $CUR.execute($X, ...)
+              - pattern: requests.$M($X, ...)
+              - pattern: open($X, ...)
+          - focus-metavariable: $X

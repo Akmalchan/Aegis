@@ -66,7 +66,7 @@
   var lastFrame = 0;
   function frame(now) {
     if (!REDUCED) requestAnimationFrame(frame);
-    if (now - lastFrame < 33) return;  // ~30 fps is plenty for a backdrop
+    if (now - lastFrame < 42 || document.hidden) return;  // ~24 fps, and nothing while the tab is hidden
     lastFrame = now;
     var t = now;
     ctx.clearRect(0, 0, W, H);
@@ -201,6 +201,7 @@
   function loadFleet() {
     return getJSON("/api/fleet").then(function (d) {
       var agents = d.agents || [];
+      fleetAgents = {}; agents.forEach(function (a) { fleetAgents[a.agent] = (a.repos || []).map(function (r) { return r.repo; }); });
       var sig = agents.map(function (a) { return a.agent + ":" + (a.repos || []).map(function (r) { return r.repo; }).join(","); }).join("|");
       if (sig !== fleetSig) { fleetSig = sig; buildMap(agents); }
       var nrepos = 0;
@@ -341,6 +342,7 @@
       }).join("") || '<li><span class="d">Waiting for the first push…</span></li>';
       paintMap(events);
       paintIncident(events);
+      try { paintStepper(events); } catch (err) { console.warn("stepper", err); }
       if (fresh.length) { react(fresh); loadFleet(); }
     }).catch(function () {});
   }
@@ -452,12 +454,172 @@
   $("repoSel").addEventListener("change", drawTimeline);
   window.addEventListener("resize", function () { if (tlRows.length) drawTimeline(); });
 
+
+  /* ================= control room: Guild agents, pipeline stepper, handoffs, projector (D2) ================= */
+  var ROLE_AGENTS = { "aegis-triage": "triage", "aegis-remediator": "remediator", "aegis-verifier": "verifier", "aegis-warden": "warden",
+                      "aegis-rulesmith": "rulesmith", "aegis-reporter": "reporter", "aegis-onboarder": "onboarder" };
+  var ROLE_DESC = { triage: "validates findings", remediator: "writes the fix", verifier: "proves the fix", warden: "fleet cron · insights",
+                    rulesmith: "learns new Semgrep rules", reporter: "writes the report", onboarder: "adds repos to the fleet" };
+  var fleetAgents = {};        // agent -> [repos] from /api/fleet
+  var knownSessions = null;    // session ids we have already seen (for the WAKE flash)
+  var guildAgents = {};        // agent -> card data from /api/guild
+
+  function ghUrl(repo, kind, ref) {
+    if (!repo || !ref) return "";
+    var base = "https://github.com/" + repo;
+    if (kind === "issue") return base + "/issues/" + ref;
+    if (kind === "pr") return base + "/pull/" + ref;
+    if (kind === "commit") return base + "/commit/" + ref;
+    return base;
+  }
+  function link(url, text) { return url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(text) + "</a>" : esc(text); }
+
+  function wakeFlash(sub) {
+    if (REDUCED) return;
+    var w = $("wake");
+    $("wakeS").textContent = sub || "";
+    w.classList.remove("on"); void w.offsetWidth; w.classList.add("on");
+    setTimeout(function () { w.classList.remove("on"); }, 2900);
+  }
+
+  function paintCards(d) {
+    var byAgent = {};
+    (d.agents || []).forEach(function (a) { byAgent[a.agent] = a; });
+    guildAgents = byAgent;
+    var names = Object.keys(fleetAgents).concat(Object.keys(ROLE_AGENTS));
+    Object.keys(byAgent).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
+    var html = "", lastGroup = "";
+    names.forEach(function (name) {
+      var group = fleetAgents[name] ? "sentinels · one per 3 repos" : "role agents";
+      if (group !== lastGroup) { html += '<div class="card-role">' + esc(group) + "</div>"; lastGroup = group; }
+      var a = byAgent[name], cur = a && (a.current || a.latest), st = a ? a.state : "never";
+      var cls = st === "working" ? "working" : (cur && cur.status === "failed") ? "failed" : a ? "done" : "never";
+      var sub = fleetAgents[name] ? fleetAgents[name].map(short).join(", ") : (ROLE_DESC[ROLE_AGENTS[name]] || ROLE_AGENTS[name] || "");
+      var status = st === "working" ? "working" : a ? (cur && cur.status === "failed" ? "failed · " + ago(cur.created_at) : "idle · " + ago(cur.created_at)) : "idle";
+      var tool = "";
+      if (cur) {
+        var t = cur.last_tool_call;
+        tool = (st === "working" ? "" : "last: ") + (t ? '<span class="tool">' + esc(t.name) + "</span>" + (t.status && t.status !== "DONE" ? " · " + esc(t.status.toLowerCase()) : "") :
+               cur.note ? '<span class="note">' + esc(cur.note) + "</span>" : '<span class="note">' + esc(cur.event + (cur.action ? " " + cur.action : "")) + "</span>") +
+               (cur.repo ? ' <span class="note">· ' + esc(short(cur.repo)) + "</span>" : "") +
+               link(cur.session_url, "session ↗");
+      }
+      html += '<div class="card ' + cls + '" data-agent="' + esc(name) + '"><span class="led"></span><div class="cn">' + esc(agentShort(name)) + (sub ? "<small>" + esc(sub) + "</small>" : "") +
+        '</div><div class="cs">' + esc(status) + "</div>" + (tool ? '<div class="ct">' + tool + "</div>" : "") + "</div>";
+    });
+    $("cards").innerHTML = html || '<div class="empty">No agents</div>';
+  }
+  function loadGuild() {
+    return getJSON("/api/guild").then(function (d) {
+      if (!d.ok) { $("guildHint").textContent = "guild: offline" + (d.error ? " · " + d.error.slice(0, 40) : ""); $("guildHint").style.color = "var(--red)"; if (!Object.keys(guildAgents).length) paintCards({ agents: [] }); return; }
+      var sessions = d.sessions || [], working = sessions.filter(function (s) { return s.status === "working"; }).length;
+      $("guildHint").style.color = "";
+      $("guildHint").textContent = "guild: live · " + working + " awake · " + sessions.length + " sessions";
+      paintCards(d);
+      if (knownSessions) {
+        var fresh = sessions.filter(function (s) { return !knownSessions[s.id] && Date.now() / 1000 - s.created_at < 120; });
+        if (fresh.length) {
+          var f = fresh[0];
+          wakeFlash(agentShort(f.agent) + (f.repo ? " · " + short(f.repo) : "") + (f.event ? " · " + f.event : ""));
+          toast("", "Agent woke up", agentShort(f.agent) + (f.repo ? " on " + short(f.repo) : ""));
+        }
+      }
+      knownSessions = knownSessions || {};
+      sessions.forEach(function (s) { knownSessions[s.id] = 1; });
+    }).catch(function () { $("guildHint").textContent = "guild: offline"; $("guildHint").style.color = "var(--red)"; });
+  }
+
+  function paintStepper(events) {
+    var scans = events.filter(function (e) { return e.kind === "scan" && e.repo; });
+    if (!scans.length) return;
+    var now = Date.now() / 1000;
+    var anchor = scans.find(function (e) { return e.verdict === "unsafe" && now - e.ts < 1800; }) || scans[0];
+    var repo = anchor.repo;
+    var wake = events.find(function (e) { return e.kind === "wake" && e.repo === repo && e.ts <= anchor.ts + 1 && anchor.ts - e.ts < 120; });
+    var t0 = wake ? wake.ts : anchor.ts;
+    var evs = events.filter(function (e) { return e.repo === repo && e.ts >= t0 - 1; }).sort(function (a, b) { return a.ts - b.ts; });
+    function first(kind, pred) { return evs.find(function (e) { return e.kind === kind && (!pred || pred(e)); }); }
+    function last(kind, pred) { var r = null; evs.forEach(function (e) { if (e.kind === kind && (!pred || pred(e))) r = e; }); return r; }
+    var sha = anchor.sha || (wake && wake.sha) || "";
+    var issue = first("issue_opened"), issueClosed = last("issue_closed"), dismissed = first("dismissed");
+    var fix = last("fix_proposed"), fixFail = last("fix_failed");
+    var ver = last("verified"), verFail = last("verify_failed");
+    var pr = first("pr_opened", function (e) { return e.repo === repo; });
+    var rescan = evs.filter(function (e) { return e.kind === "scan" && e !== anchor; }).pop();
+    var green = last("status_set", function (e) { return e.state === "success" && e.ts > anchor.ts; });
+    var unsafe = anchor.verdict === "unsafe";
+    var steps = [];
+    steps.push({ label: "Push", ev: wake || anchor, cls: "done", meta: (wake && wake.trigger ? wake.trigger + " · " : "") + (sha ? "" : ""), link: sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "" });
+    steps.push({ label: "Semgrep scan", ev: anchor, cls: "done " + (unsafe ? "bad" : "good"),
+      meta: (anchor.n_findings || 0) + " finding" + (anchor.n_findings === 1 ? "" : "s") + " · " + fmtMs(anchor.ms || anchor.total_ms) });
+    if (!unsafe) {
+      steps.push({ label: "Validated", cls: "done good", ev: anchor, meta: "clean · nothing to triage" });
+      steps.push({ label: "Fix", cls: "", meta: "not needed" }); steps.push({ label: "Re-check", cls: "", meta: "–" });
+      steps.push({ label: "Issue", cls: "", meta: "none" }); steps.push({ label: "Decision", cls: green ? "done good" : "", ev: green, meta: green ? "commit green" : "–", link: green ? link(ghUrl(repo, "commit", green.sha), "status ↗") : "" });
+      steps.push({ label: "Merged & green", cls: green ? "done good" : "", ev: green, meta: green ? "✓" : "–" });
+    } else {
+      var validated = issue || fix || dismissed;
+      steps.push({ label: "Validated", cls: dismissed && !issue ? "done" : validated ? "done" : "active", ev: validated, meta: dismissed && !issue ? "triage: false positive" : validated ? "triage confirmed" : "triage running…" });
+      var fx = fix || fixFail;
+      steps.push({ label: "Fix", cls: fix ? "done" : fixFail ? "done bad" : validated ? "active" : "", ev: fx,
+        meta: fx ? [fx.model === "semgrep-rule-fix" ? "rule autofix" : fx.model || "openai", fx.path || "", fixFail && !fix ? "failed" : ""].filter(Boolean).join(" · ") : validated ? "writing patch…" : "–" });
+      var vr = ver || verFail;
+      var layers = vr && vr.layers ? Object.keys(vr.layers).filter(function (k) { return vr.layers[k] === true; }).length + "/" + Object.keys(vr.layers).filter(function (k) { return vr.layers[k] !== null; }).length + " layers" : "";
+      steps.push({ label: "Re-check", cls: ver ? "done good" : verFail ? "done bad" : fx ? "active" : "", ev: vr, meta: vr ? (ver ? "verified · " : "rejected · ") + layers : fx ? "verifying…" : "–" });
+      steps.push({ label: "Issue", cls: issue ? "done" + (issueClosed ? " good" : " bad") : "", ev: issue, meta: issue ? (issueClosed ? "closed" : "open") : "–", link: issue ? link(ghUrl(repo, "issue", issue.ref), "#" + issue.ref) : "" });
+      var dec = pr ? (ver ? "PR verified" : verFail ? "PR rejected" : "PR open") : fixFail && !fix ? "no safe patch" : "";
+      steps.push({ label: "Decision", cls: pr ? "done " + (ver ? "good" : verFail ? "bad" : "") : fixFail && !fix ? "done bad" : "", ev: pr || (fixFail && !fix ? fixFail : null), meta: dec || "–", link: pr ? link(ghUrl(repo, "pr", pr.ref), "PR #" + pr.ref) : "" });
+      var merged = issueClosed || (green && rescan && rescan.verdict === "safe");
+      steps.push({ label: "Merged & green", cls: merged ? "done good" : pr ? "active" : "", ev: issueClosed || green || rescan, meta: merged ? "rescan clean" + (rescan ? " · " + fmtMs(rescan.ms || rescan.total_ms) : "") : pr ? "waiting for merge…" : "–",
+        link: green ? link(ghUrl(repo, "commit", green.sha), "status ↗") : "" });
+    }
+    $("stepTitle").innerHTML = esc(short(repo)) + ' <span class="v-' + (unsafe ? "unsafe" : "safe") + '">' + (unsafe ? "unsafe" : "safe") + "</span>" + (sha ? '<span class="sha">' + esc(sha.slice(0, 7)) + "</span>" : "");
+    $("stepHint").textContent = agentShort(anchor.agent) + " · " + ago(t0) + " ago";
+    $("stepper").innerHTML = steps.map(function (st) {
+      var off = st.ev ? "+" + fmtDur(Math.max(0, st.ev.ts - t0)) : "";
+      return '<li class="' + st.cls + '"><span class="pt"></span><span>' + esc(st.label) + (st.meta ? ' <span class="pm">' + esc(st.meta) + "</span>" : "") +
+        (st.link ? ' <span class="pl">' + st.link + "</span>" : "") + '</span><span class="pm">' + off + "</span></li>";
+    }).join("");
+  }
+
+  function loadHandoffs() {
+    return getJSON("/api/handoffs").then(function (d) {
+      var rows = (d.handoffs || []).slice(0, 8);
+      $("hoHint").textContent = rows.length ? rows.length + " checked" : "agent → agent";
+      $("handoffs").innerHTML = rows.length ? rows.map(function (h) {
+        var m = /^(.+?)->(.+?):(.+)$/.exec(String(h.ref || ""));
+        var from = h.agent || (m && m[1]) || "?", to = h.to_agent || (m && m[2]) || "?", what = h.kind_ || h.artifact || (m && m[3]) || "";
+        var rejected = h.kind === "handoff_rejected" || h.verdict === "rejected" || h.result === "rejected" || h.ok === false;
+        var ok = h.kind === "handoff_ok" || h.verdict === "ok" || h.ok === true || (!rejected && h.kind === "handoff");
+        return '<li class="' + (rejected ? "rejected" : ok ? "ok" : "") + '"><span class="ha">' + esc(agentShort(from)) + " <b>→</b> " + esc(agentShort(to)) + (what ? " · " + esc(what) : "") +
+          '</span><span class="hv">' + (rejected ? "rejected" : "ok") + '</span><span class="hm">' + ago(h.ts) + " ago · " + esc(short(h.repo)) + (h.reason ? " · " + esc(h.reason) : "") + (h.rule_id ? " · " + esc(ruleShort(h.rule_id)) : "") + "</span></li>";
+      }).join("") : '<li class="empty">no handoffs yet</li>';
+    }).catch(function () {});
+  }
+
+  /* projector mode: dark, big, main view fits 1080p; toggled with the button, the P key or ?projector */
+  function setProjector(on) {
+    document.body.classList.toggle("projector", on);
+    $("projBtn").classList.toggle("on", on);
+    try { localStorage.setItem("aegis.projector", on ? "1" : "0"); } catch (e) {}
+  }
+  (function () {
+    var want = /projector/.test(location.search);
+    try { if (!want && localStorage.getItem("aegis.projector") === "1") want = true; } catch (e) {}
+    if (!want && window.innerWidth >= 1800) want = true;
+    setProjector(want);
+  })();
+  $("projBtn").addEventListener("click", function () { setProjector(!document.body.classList.contains("projector")); });
+  window.addEventListener("keydown", function (e) { if (e.key === "p" || e.key === "P") setProjector(!document.body.classList.contains("projector")); });
+
   /* ================= schedule ================= */
   function every(fn, ms) { fn(); setInterval(fn, ms); }
   loadFleet().then(function () { every(loadEvents, 2000); });
   every(loadFleet, 6000);
   every(loadStats, 5000);
   every(loadAlerts, 5000);
+  every(loadGuild, 4000);
+  every(loadHandoffs, 5000);
   every(loadLatency, 10000);
   every(loadMttr, 10000);
   every(loadInsights, 15000);

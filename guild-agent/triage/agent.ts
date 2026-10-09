@@ -24,6 +24,12 @@ const Finding = z.object({
   seen_before: z.number().optional(),
   dismissed_before: z.boolean().optional(),
   repo_mttr_h: z.number().optional(),
+  // Semgrep taint rules (rules/aegis-taint.yml): the scanner attaches Semgrep's own --dataflow-traces output.
+  taint_rule_id: z.string().optional(),
+  trace_text: z.string().optional(),
+  dataflow_trace: z
+    .array(z.object({ kind: z.enum(["source", "propagator", "sink"]), path: z.string(), line: z.number(), code: z.string() }))
+    .optional(),
 })
 
 const inputSchema = z.object({
@@ -61,6 +67,12 @@ PROCEDURE
       HTTP redirect, crypto primitive, secret literal).
    c. CONSEQUENCE: what an attacker gains (data read/write, code execution, auth bypass, secret disclosure, DoS).
    Reachability: is the code on a path that runs in production (route handler, worker, CLI entry) or dead/test code?
+   PROVEN FLOW: when finding.trace_text / finding.dataflow_trace is present, Semgrep's taint engine has already proven
+   the data flow (source -> propagators -> sink, with file:line). Do not re-derive or contradict it: take its "source"
+   step as SOURCE and its "sink" step as SINK, and only judge (a) whether that source is attacker-controlled and
+   (b) reachability. Start "explanation" with finding.trace_text quoted verbatim, then your judgement. Fill
+   "evidence" with one line per trace step, in order, formatted "<kind> <path>:<line>: <code>" (the sentinel pastes
+   this into the Issue's "Evidence" section under the flagged lines). Never add steps that are not in the trace.
 3. Severity rubric (CWE-driven, adjust one step down if hard to reach or needs an authenticated user):
    - critical: RCE / command injection (CWE-78, CWE-94, CWE-502), SQL injection with write access (CWE-89),
      hard-coded production credentials or private keys (CWE-798, CWE-321), auth bypass (CWE-287/CWE-306).
@@ -88,7 +100,8 @@ Reply with ONLY a JSON object, no prose, no code fence:
   "title": "short precise title, <= 70 chars, no [AEGIS] prefix",
   "impact": "one or two sentences: who can do what",
   "explanation": "source -> sink -> consequence in 3-6 sentences with file:line references",
-  "fix_suggestion": "the minimal code change, as a short snippet or one sentence"
+  "fix_suggestion": "the minimal code change, as a short snippet or one sentence",
+  "evidence": "only when finding.trace_text is present: Semgrep's trace steps, one per line, '<kind> <path>:<line>: <code>'; otherwise omit"
 }
 Rules: never invent code you did not see; quote line numbers from the file you read; if the rule message and the
 code disagree, trust the code; keep confidence <= 0.5 when you could not read the file.`,

@@ -7,11 +7,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
 <div class="grain" aria-hidden="true"></div>
+<div class="wake" id="wake" aria-hidden="true"><div class="wake-w">WAKE</div><div class="wake-s mono" id="wakeS"></div></div>
 
 <header class="nav">
   <a class="brand" href="#live">
@@ -24,6 +26,7 @@
   </nav>
   <div class="nav-right">
     <span class="status" id="status"><i class="pulse"></i><span id="statusText">connecting</span></span>
+    <button class="proj mono" id="projBtn" type="button" title="Projector mode (P)">projector</button>
     <span class="clock mono" id="clock">--:--:--</span>
   </div>
 </header>
@@ -47,6 +50,24 @@
 
   <div class="alerts" id="alerts" hidden></div>
 
+  <div class="grid-cr">
+    <section class="panel">
+      <div class="panel-head"><h2>Agents</h2><span class="hint mono" id="guildHint">guild: connecting</span></div>
+      <div class="cards" id="cards"><div class="empty">Waiting for Guild…</div></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Latest push</h2><span class="hint mono" id="stepHint">waiting for a push</span></div>
+      <div class="step-title" id="stepTitle">No push seen yet</div>
+      <ol class="stepper" id="stepper"></ol>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Handoff guard</h2><span class="hint mono" id="hoHint">agent → agent</span></div>
+      <ul class="handoffs" id="handoffs"><li class="empty">no handoffs yet</li></ul>
+      <div class="feed-head mono">Live feed</div>
+      <ul class="feed feed-sm" id="feed"></ul>
+    </section>
+  </div>
+
   <div class="grid-2">
     <section class="panel">
       <div class="panel-head"><h2>Fleet</h2><span class="hint mono" id="fleetHint"></span></div>
@@ -60,8 +81,6 @@
         <ol class="pipeline" id="pipeline"></ol>
         <div class="inc-total" id="incTotal"></div>
       </div>
-      <div class="feed-head mono">Live feed</div>
-      <ul class="feed" id="feed"></ul>
     </section>
   </div>
 

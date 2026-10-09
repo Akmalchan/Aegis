@@ -15,6 +15,14 @@ GUILD_TRIGGER_KEY = os.getenv("GUILD_TRIGGER_KEY", "")
 GUILD_AGENT_ID = os.getenv("GUILD_AGENT_ID", "")
 GUILD_ENABLED = bool(GUILD_OWNER and GUILD_WORKSPACE and GUILD_TRIGGER_KEY)
 
+
+def redact(text: str) -> str:
+    """Strip secrets from anything that goes to a log, an HTTP response or ClickHouse (git errors echo the clone URL)."""
+    for secret in (GITHUB_TOKEN, GUILD_TRIGGER_KEY, OPENAI_API_KEY, os.getenv("SCANNER_KEY", "")):
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
 CACHE_DIR = ROOT / ".cache"
 STATE_DIR = ROOT / "state"
 RULES_DIR = ROOT / "rules"

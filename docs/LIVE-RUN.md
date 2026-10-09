@@ -134,3 +134,49 @@ git checkout origin/verify-test/fix -- app.py && git commit -m "reset: clean app
 
 Then wait for the reset push's session to finish (`guild trigger sessions 01a1225f-c54b-6639-0000-49b79296e094`) before
 the next push, so the verifier is not racing a new scan.
+
+## Round 3 (final flow): one push → fix_code → verify → one Issue → PR → merge → green (S2, 14:15–15:10 PDT)
+
+Scenario fixed by the lead: per push the remediator takes ONE finding (ERROR before WARNING, `fix`/`fix_hint`
+preferred), asks the scanner for the patch (`aegis_scanner_fix_code`, scanner **1.2.0**, published by S1 at 21:17),
+commits it on `aegis/fix-<fp>`, proves it with `verify_fix`, writes one story Issue, and only when verified opens the
+PR, labels `aegis:verified` and merges it (`github_pulls_merge`, method `merge`). Every other confirmed finding gets
+an Issue only (`mode: "issue_only"`). The sentinel gates Issue-closing on a `scan_full` at HEAD (a diff scan does not
+list findings the push left alone, so "not in CURRENT" was never proof that a finding is gone).
+
+Published: remediator **1.0.6** `01a12284-2480-cf83-0000-8605e1a2180e` (21:15:19), sentinel
+`01a12285-5f1e-cf83-0000-bf5fef9e3828` (21:16:36, "one fix per push, full-scan gate before closing, merge-aware"),
+remediator **1.0.7** `01a1228b-7383-cf83-0000-8d6d95b76d61` (21:23:16, round-2 fixes below). The sentinel's
+remediator tool calls the agent by name, so remediator republishes do not need a sentinel republish.
+
+### Round 1 (21:16:49 push `c084f7c`, session `01a12286-aa15-5f3d-0000-92581f653e70`)
+
+| time | what |
+|---|---|
+| 21:16:49 | push vulnerable `app.py` to main |
+| 21:16:53 | session spawned (4 s) |
+| 21:17:25 | status **failure** "4 new finding(s)" (36 s) |
+| 21:17:39–54 | `aegis_triage` confirms `aegis.hardcoded-secret` |
+| 21:18:14 | `aegis_scanner_fix_code` → `semgrep-rule-fix`, 1 s |
+| 21:18:19 / 21:18:35 | branch `aegis/fix-c684c35ae1fe` + file commit `51a7ad2`; both webhook sessions (`01a12287-fee4`, `01a12288-3f4e`) → `verdict: ignored, notes: aegis fix branch` in 11 s each |
+| 21:18:42–47 | `verify_fix` #1: targeted test FAILED at head (`KeyError: ADMIN_API_KEY` on import: the test imported `app` before setting the env var) |
+| 21:19:01 | remediator re-edited and re-committed the file itself (`f2e44ba`), against the rules |
+| 21:19:22–28 | `verify_fix` #2: static ✅ 4674 ms ("4 at base, 2 at head"), regression ⏭ (no suite), targeted ✅ 196 ms |
+| 21:19:37 | Issue **#63** (story: Summary / Found / Validated / Fix diff / Verified per layer / Decision) |
+| 21:19:49 | PR **#64**, 21:19:57 label `aegis:verified`, 21:20:03 status success on fix sha |
+| 21:20:12 | **merged** by the agent (`github_pulls_merge`) → main `1ada435` |
+| 21:20:15 | merge session `01a12289-bfc0…` → status **failure** "1 finding(s)" on the merge commit |
+| 21:21:17 / 21:22:27 | Issues #65 (SQL concat), #66 (debug) in `issue_only` mode, no PR |
+
+Push → PR 3 min 00 s, push → merge 3 min 23 s. Mechanics all work, content did not: the merged `app.py` was
+syntax-broken. The LLM base64-encodes `new_content` for `create_or_update_file_contents` and the round trip mangled
+three lines outside the span (`"%", + q`, `for"r in`, `if __main__ ==`). Verification missed it: Semgrep reports fewer
+findings on a file it cannot fully parse (so "finding gone, nothing new" passed) and the targeted test only read the
+source text, never imported the module. Second bug: the PR body said `Fixes #63`, so GitHub closed the Issue at merge
+time and the verifier's "re-scanned" comment never happened (#63 shows CLOSED at 21:20:12 with no comment).
+
+Round-2 fixes (remediator 1.0.7): commit through the Git Data API with plain text (`github_git_get_commit` →
+`github_git_create_tree` with `content` → `github_git_create_commit` → `github_git_create_ref`), no base64 anywhere;
+exactly one commit per run and no self-edits after a failed verify; the targeted test must import the app module
+inside the test function (after `monkeypatch.setenv` for secrets) so a file that does not import fails L3; no GitHub
+closing keywords in PR text. Reset at 21:23:43 (`2662bbd`, clean).

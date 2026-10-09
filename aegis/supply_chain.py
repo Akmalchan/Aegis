@@ -26,6 +26,7 @@ def _cwe(meta: dict) -> str:
 
 
 def _fingerprint(rule_id: str, path: str, lines: str) -> str:
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 -- dedupe key, not a security hash; must stay stable with rows already in ClickHouse
     return hashlib.sha1(f"{rule_id}|{path}|{lines.strip()}".encode()).hexdigest()[:12]
 
 
@@ -99,6 +100,7 @@ def scan(workdir: Path) -> list[dict]:
             cmd = [SEMGREP, "ci", "--supply-chain", "--dry-run", "--json", f"--json-output={out}",
                    "--metrics=off", "--disable-version-check", "--suppress-errors"]
             try:
+                # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- argv list, no shell; SEMGREP_BIN is operator config from .env, not request input
                 p = subprocess.run(cmd, cwd=workdir, capture_output=True, text=True, timeout=TIMEOUT_S,
                                    env={**os.environ, "SEMGREP_ENABLE_VERSION_CHECK": "0"})
             except subprocess.TimeoutExpired:
