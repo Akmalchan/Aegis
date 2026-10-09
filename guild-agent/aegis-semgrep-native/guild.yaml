@@ -1,0 +1,32 @@
+# Declare the tools available to "andriidrok1~aegis-semgrep-native".
+#
+# Integrations expose third-party operations (REST or MCP) as tools:
+#
+# integrations:
+#   - name: guildai~slack
+#     version: "*"
+#     tools:
+#       - post_message
+#
+# Sub-agents let this agent delegate work to other published agents:
+#
+# sub_agents:
+#   - name: my-org~my-helper-agent
+#     version: "*"
+#
+# Builtins are curated platform tools, grouped by service. Omit `tools` to
+# include every builtin of that service. Supported:
+#   - console  ->  console_log                 (log a message to the debug console)
+#   - ui       ->  ui_prompt                   (ask the user for input; suspends the agent)
+#   - guild    ->  guild_credentials_request   (ask the user to configure an integration's credentials)
+#
+# builtins:
+#   - name: ui
+#     tools:
+#       - ui_prompt
+#   - name: guild
+
+integrations: []
+sub_agents: []
+builtins: []
+environment: andriidrok1~aegis-semgrep-env

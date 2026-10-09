@@ -1,0 +1,45 @@
+title: "Aegis Semgrep native"
+
+description: >
+  Runs Semgrep inside the Guild container on a code snippet and returns the raw findings JSON.
+
+parameters:
+  - key: code
+    input_type: string
+    requirement: required
+    description: "Source code to scan"
+  - key: language
+    input_type: string
+    requirement: optional
+    default: "python"
+    description: "Language of the snippet (python, javascript, go, ...)"
+
+instructions: |
+  You have a shell. Do exactly this, using shell commands, and do not invent output.
+  1. Write the code below verbatim to a file /tmp/aegis_scan/snippet with the extension
+     that matches the language ({{ language }}; python -> .py, javascript -> .js, typescript -> .ts, go -> .go, java -> .java).
+  2. Run this diagnostic in one shell call and copy its full output into the diag field:
+     id; echo PATH=$PATH; ls -la /opt/aegis ~/.local/bin 2>&1 | head -20; tail -25 ~/aegis-setup.log 2>&1; python3 -m pip show semgrep 2>&1 | head -3; command -v semgrep
+     Then run: semgrep --version (if not on PATH, try ~/.local/bin/semgrep and use that path below)
+  3. Run: semgrep scan --config /opt/aegis/rules.yml --json --metrics=off <file>
+     If /opt/aegis/aegis.yml exists, also pass --config /opt/aegis/aegis.yml.
+     If that fails because of the config, try --config p/security-audit.
+  4. Return the exact stdout JSON of semgrep in semgrep_json, the version string, and the
+     exact command you ran. If any command fails, put the stderr in error and set success=false.
+
+  Code:
+  ```
+  {{ code }}
+  ```
+
+response:
+  json_schema:
+    type: object
+    properties:
+      semgrep_version: { type: string }
+      diag: { type: string }
+      command: { type: string }
+      semgrep_json: { type: string, description: "Raw semgrep --json stdout" }
+      error: { type: string }
+      success: { type: boolean }
+    required: [semgrep_json, success]
