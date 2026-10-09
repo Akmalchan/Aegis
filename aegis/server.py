@@ -1,15 +1,123 @@
-"""AEGIS scanner: GitHub webhook -> Semgrep -> analyst (Guild.ai agent or OpenAI fallback) -> GitHub issue lifecycle."""
-import hashlib, hmac, json, threading, time
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+"""AEGIS scanner. Contract 1 (openapi.yaml): /scan/diff, /scan/full, /actions, /insights — called by Guild agents.
+Legacy v1 path kept as fallback: GitHub webhook -> Semgrep -> analyst (Guild.ai agent or OpenAI) -> issue lifecycle."""
+import hashlib, hmac, json, os, secrets, subprocess, threading, time
+from typing import Literal
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.responses import HTMLResponse, JSONResponse
-from . import config, scanner, state, analyst_guild, analyst_openai
+from pydantic import BaseModel, Field
+from . import config, scanner, state, enrich, ch, analyst_guild, analyst_openai
 
-app = FastAPI(title="AEGIS scanner")
+app = FastAPI(title="AEGIS Scanner", version="1.0.0")
 _lock = threading.Lock()
+SCANNER_KEY = os.getenv("SCANNER_KEY", "")
 
 
 def analyst():
     return analyst_guild if config.GUILD_ENABLED else analyst_openai
+
+
+# ---------------------------------------------------------------- Contract 1
+
+def require_key(x_aegis_key: str | None = Header(default=None)) -> None:
+    if not SCANNER_KEY:
+        raise HTTPException(503, "SCANNER_KEY not configured on the scanner")
+    if not x_aegis_key or not secrets.compare_digest(x_aegis_key, SCANNER_KEY):
+        raise HTTPException(401, "missing or bad X-AEGIS-Key")
+
+
+class ScanDiffIn(BaseModel):
+    repo: str = Field(description="owner/name")
+    base_sha: str = Field(description="commit before the push")
+    head_sha: str = Field(description="commit after the push")
+    agent: str = Field(description="calling agent name, e.g. aegis-sentinel-01")
+
+
+class ScanFullIn(BaseModel):
+    repo: str
+    sha: str
+    agent: str
+
+
+class ActionIn(BaseModel):
+    agent: str
+    repo: str
+    kind: Literal["status_set", "issue_opened", "issue_closed", "pr_opened", "pr_reviewed", "dismissed", "denied", "email"]
+    ref: str
+    fingerprint: str = ""
+    latency_ms: int = 0
+    session_url: str = ""
+
+
+def _scan(repo: str, sha: str, base_sha: str, agent: str, trigger: str) -> dict:
+    t0 = time.time()
+    state.log_event("wake", agent=agent, repo=repo, sha=sha[:7], base=base_sha[:7], trigger=trigger)
+    with scanner.repo_lock(repo):
+        try:
+            workdir = scanner.checkout(repo, sha, config.GITHUB_TOKEN)
+        except subprocess.CalledProcessError as e:
+            state.log_event("error", agent=agent, repo=repo, stage="checkout", error=(e.stderr or str(e))[-300:])
+            raise HTTPException(404, f"cannot check out {repo}@{sha}: {(e.stderr or '').strip()[-200:]}")
+        real_sha = scanner.head_sha(workdir)
+        baseline = base_sha if trigger != "full" and scanner.usable_baseline(workdir, base_sha) else None
+        if trigger != "full" and not baseline:
+            trigger = "push-full"  # new branch / force push / unknown base: scan everything
+        t1 = time.time()
+        findings, n_files = scanner.scan(workdir, baseline_commit=baseline)
+        semgrep_ms = int((time.time() - t1) * 1000)
+    enrich.apply(repo, findings)
+    verdict = enrich.verdict(findings)
+    ms = int((time.time() - t0) * 1000)
+    ch_trigger = {"diff": "push", "push-full": "push", "full": "cron"}.get(trigger, trigger)
+    try:
+        ch.insert_scan(agent, repo, real_sha, baseline or "", ch_trigger, n_files, len(findings), verdict, semgrep_ms, ms)
+        ch.insert_findings(agent, repo, real_sha, findings, status="new")
+    except Exception as e:  # noqa — ClickHouse must never break a scan
+        state.log_event("error", agent=agent, repo=repo, stage="clickhouse", error=str(e)[:300])
+    state.log_event("scan", agent=agent, repo=repo, sha=real_sha[:7], verdict=verdict, n_findings=len(findings),
+                    baseline=bool(baseline), ms=ms, rules=[f["rule_id"] for f in findings])
+    return {"repo": repo, "sha": real_sha, "base_sha": baseline or "", "verdict": verdict, "findings": findings,
+            "n_files": n_files, "ms": ms}
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return {"ok": True, "semgrep": os.path.exists(scanner.SEMGREP), "clickhouse": ch.enabled(), "auth": bool(SCANNER_KEY)}
+
+
+@app.post("/scan/diff", operation_id="scan_diff", dependencies=[Depends(require_key)],
+          summary='Scan only what a push introduced (Semgrep --baseline-commit). Answers "did this change make the repo unsafe?"')
+def scan_diff(body: ScanDiffIn):
+    return _scan(body.repo, body.head_sha, body.base_sha, body.agent, "diff")
+
+
+@app.post("/scan/full", operation_id="scan_full", dependencies=[Depends(require_key)],
+          summary="Scan every tracked file of a repo at a commit.")
+def scan_full(body: ScanFullIn):
+    return _scan(body.repo, body.sha, "", body.agent, "full")
+
+
+@app.post("/actions", operation_id="record_action", dependencies=[Depends(require_key)],
+          summary="Agent reports an action it took (stored in ClickHouse).")
+def record_action(body: ActionIn):
+    try:
+        ch.insert_action(body.agent, body.repo, body.kind, body.ref, body.fingerprint, body.latency_ms, body.session_url)
+    except Exception as e:  # noqa
+        state.log_event("error", agent=body.agent, repo=body.repo, stage="clickhouse", error=str(e)[:300])
+    state.log_event(body.kind, **body.model_dump(exclude={"kind"}, exclude_defaults=True))
+    return {"ok": True}
+
+
+@app.get("/insights", operation_id="fleet_insights", dependencies=[Depends(require_key)],
+         summary="Fleet-wide analytics from ClickHouse for the warden agent.")
+def fleet_insights(hours: int = 24):
+    try:
+        return ch.insights(hours)
+    except Exception as e:  # noqa
+        state.log_event("error", stage="insights", error=str(e)[:300])
+        return {"rising_repos": [], "noisy_rules": [], "reopened": [], "agent_latency": []}
+
+
+# ---------------------------------------------------------------- legacy v1 (webhook -> analyst)
 
 
 def _verify(sig: str | None, body: bytes) -> None:
@@ -25,7 +133,7 @@ def process_push(repo: str, sha: str, files: list[str], pusher: str = "") -> dic
     if not agent:
         state.log_event("ignored", repo=repo, reason="repo not assigned to any agent")
         return {"ignored": True}
-    with _lock:
+    with _lock, scanner.repo_lock(repo):
         t0 = time.time()
         state.log_event("wake", agent=agent, repo=repo, sha=sha[:7], files=files, pusher=pusher)
         workdir = scanner.checkout(repo, sha, config.GITHUB_TOKEN)

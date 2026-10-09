@@ -26,6 +26,7 @@ components:
         cwe: { type: string }
         fingerprint: { type: string, description: stable id = sha1(rule_id|path|lines)[:12] }
         fix: { type: string, description: replacement code suggested by the rule, when available }
+        fix_hint: { type: string, description: how to fix when no mechanical fix exists }
         seen_before: { type: integer, description: times this fingerprint was seen across the fleet (ClickHouse) }
         dismissed_before: { type: boolean, description: triage already marked this fingerprint a false positive }
         repo_mttr_h: { type: number, description: mean time to remediate in this repo, hours }
