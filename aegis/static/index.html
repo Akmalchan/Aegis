@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://api.fontshare.com">
 <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=20">
+<link rel="stylesheet" href="/static/style.css?v=21">
 </head>
 <body>
 
@@ -109,60 +109,43 @@
 <section class="page" id="page-how" hidden>
   <section class="hero hero-how">
     <canvas id="flow2" aria-hidden="true"></canvas>
-    <div class="hero-top"><span class="chip"><i class="dot"></i>Architecture</span></div>
-    <div class="hero-bottom"><h1 class="wordmark small">How it works<i></i></h1></div>
+    <div class="hero-top"><span class="chip"><i class="dot"></i>How it works</span></div>
+    <div class="hero-bottom"><h1 class="hw-head">Every push is checked, fixed and proven — by agents, not people.</h1></div>
   </section>
 
   <section class="block">
-    <div class="block-head"><h2>One push.</h2><span class="sub">Five moves, zero clicks</span></div>
-    <div class="dark-card arch-card">
-      <svg id="arch" viewBox="0 0 960 360" role="img" aria-label="GitHub to Guild agent to Semgrep scanner to ClickHouse and back to GitHub">
-        <path class="flow" d="M170 120 H290"/>
-        <path class="flow" d="M570 120 H690"/>
-        <path class="flow" d="M810 170 V230"/>
-        <path class="flow red" d="M690 280 H430 V230"/>
-        <path class="flow green" d="M290 200 H105 V170"/>
-        <g class="nd" transform="translate(40 70)"><rect width="130" height="100" rx="18"/><text x="65" y="56">GitHub</text></g>
-        <g class="nd guild" transform="translate(290 40)"><rect width="280" height="190" rx="22"/><text x="140" y="44">Guild</text>
-          <g transform="translate(22 66)"><rect class="in" width="236" height="34" rx="17"/><text class="s" x="118" y="22">sentinel × 3</text></g>
-          <g transform="translate(22 108)"><rect class="in" width="236" height="34" rx="17"/><text class="s" x="118" y="22">triage · remediate · verify</text></g>
-          <g transform="translate(22 150)"><rect class="in fence" width="236" height="30" rx="15"/><text class="s" x="118" y="20">policy fence</text></g>
-        </g>
-        <g class="nd" transform="translate(690 70)"><rect width="240" height="100" rx="18"/><text x="120" y="56">Semgrep</text></g>
-        <g class="nd" transform="translate(690 230)"><rect width="240" height="100" rx="18"/><text x="120" y="56">ClickHouse</text></g>
-        <circle class="pk" r="5"><animateMotion dur="2.2s" repeatCount="indefinite" path="M170 120 H290"/></circle>
-        <circle class="pk" r="5"><animateMotion dur="2.2s" begin=".55s" repeatCount="indefinite" path="M570 120 H690"/></circle>
-        <circle class="pk" r="5"><animateMotion dur="2.2s" begin="1.1s" repeatCount="indefinite" path="M810 170 V230"/></circle>
-        <circle class="pk red" r="5"><animateMotion dur="2.8s" begin="1.4s" repeatCount="indefinite" path="M690 280 H430 V230"/></circle>
-        <circle class="pk green" r="5"><animateMotion dur="2.2s" begin="1.65s" repeatCount="indefinite" path="M290 200 H105 V170"/></circle>
-      </svg>
-    </div>
-    <ol class="moves">
-      <li><b>01</b><h3>Wake</h3><p>Push fires a Guild trigger.</p></li>
-      <li><b>02</b><h3>Judge</h3><p>Semgrep diffs the push. Deterministic.</p></li>
-      <li><b>03</b><h3>Act</h3><p>Red status, Issue, fix PR.</p></li>
-      <li><b>04</b><h3>Verify</h3><p>Re-scan. Issue closes itself.</p></li>
-      <li><b>05</b><h3>Remember</h3><p>ClickHouse. Dismissed once, never again.</p></li>
+    <div class="block-head"><h2>The loop.</h2><span class="sub">One push, 8 steps, nobody clicks</span></div>
+    <ol class="hw-steps">
+      <li><b>1</b><h3>Push</h3><p>GitHub wakes the agent on Guild.</p></li>
+      <li><b>2</b><h3>Semgrep finds</h3><p>Only what this push changed.</p></li>
+      <li><b>3</b><h3>Proven real</h3><p>A test that fails on the bad code.</p></li>
+      <li class="hw-ai"><b>4</b><h3>OpenAI fixes</h3><p>Rewrites only the flagged lines.</p><span class="hw-tag">Only step a model writes</span></li>
+      <li><b>5</b><h3>Re-checked</h3><p>Re-scan, repo tests, and the test passes.</p></li>
+      <li><b>6</b><h3>One Issue</h3><p>The whole story in one place.</p></li>
+      <li><b>7</b><h3>Decision</h3><p>Verified: agent merges. Not: nothing ships.</p></li>
+      <li class="hw-ok"><b>8</b><h3>Green</h3><p>The merge is scanned again.</p></li>
     </ol>
   </section>
 
   <section class="block">
-    <div class="block-head"><h2>Why trust it.</h2></div>
-    <div class="grid-3">
-      <div class="card big-card"><span class="pill-y">Deterministic</span><h3>No model decides what's vulnerable.</h3></div>
-      <div class="card big-card"><span class="pill-y">Fenced</span><h3>Each agent can only touch its own 3 repos.</h3></div>
-      <div class="card big-card"><span class="pill-y">Remembered</span><h3><span id="howFindings">22k</span> findings shape tomorrow's scans.</h3></div>
+    <div class="block-head"><h2>Who does what.</h2></div>
+    <div class="hw-who">
+      <div class="card hw-card"><span class="pill-y">Guild.ai</span><p>Hosts 11 agents, wakes them on every push, limits each to its own repos.</p></div>
+      <div class="card hw-card"><span class="pill-y">Semgrep</span><p>Finds the bug, checks every fix and every handoff between agents.</p></div>
+      <div class="card hw-card"><span class="pill-y">OpenAI</span><p>Writes the fix for the flagged lines only.</p></div>
+      <div class="card hw-card"><span class="pill-y">ClickHouse</span><p>Remembers every finding across the fleet and decides what to fix first.</p></div>
+      <div class="card hw-card"><span class="pill-y">GitHub</span><p>Statuses, Issues, PRs, merges.</p></div>
     </div>
   </section>
 
   <section class="block">
-    <div class="block-head"><h2>Built on.</h2></div>
-    <div class="logos">
-      <div class="logo-card"><b>Guild</b><span>agents · triggers · policies</span></div>
-      <div class="logo-card"><b>Semgrep</b><span>detection · autofix</span></div>
-      <div class="logo-card"><b>ClickHouse</b><span>fleet memory</span></div>
-      <div class="logo-card"><b>GitHub</b><span>where agents act</span></div>
-    </div>
+    <div class="block-head"><h2>Why you can trust it.</h2></div>
+    <ul class="hw-trust">
+      <li>The model never decides the verdict. Semgrep does.</li>
+      <li>A fix ships only if a test fails before and passes after.</li>
+      <li>Agents don't trust each other: everything they hand over is scanned.</li>
+    </ul>
+    <span id="howFindings" hidden></span>
   </section>
 </section>
 <!-- ============================ CLI (both pages) ============================ -->
