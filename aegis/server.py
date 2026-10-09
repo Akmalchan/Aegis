@@ -4,9 +4,10 @@ import hashlib, hmac, json, os, secrets, subprocess, threading, time
 from typing import Literal
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from . import config, scanner, state, enrich, ch, supply_chain, analyst_guild, analyst_openai
 from . import dashboard
+from . import github_status, verify  # stream V: commit status setter + fix verification
 
 app = FastAPI(title="AEGIS Scanner", version="1.0.0")
 dashboard.mount(app)
@@ -27,6 +28,10 @@ def require_key(x_aegis_key: str | None = Header(default=None)) -> None:
         raise HTTPException(401, "missing or bad X-AEGIS-Key")
 
 
+app.include_router(verify.router, dependencies=[Depends(require_key)])
+app.include_router(github_status.router, dependencies=[Depends(require_key)])
+
+
 class ScanDiffIn(BaseModel):
     repo: str = Field(description="owner/name")
     base_sha: str = Field(description="commit before the push")
@@ -41,9 +46,10 @@ class ScanFullIn(BaseModel):
 
 
 class ActionIn(BaseModel):
+    model_config = ConfigDict(extra="allow")  # lenient: status_set may carry state/description
     agent: str
     repo: str
-    kind: Literal["status_set", "issue_opened", "issue_closed", "pr_opened", "pr_reviewed", "dismissed", "denied", "email"]
+    kind: Literal["status_set", "issue_opened", "issue_closed", "pr_opened", "pr_reviewed", "dismissed", "denied", "email", "verified", "verify_failed"]
     ref: str
     fingerprint: str = ""
     latency_ms: int = 0
@@ -108,6 +114,8 @@ def record_action(body: ActionIn):
     except Exception as e:  # noqa
         state.log_event("error", agent=body.agent, repo=body.repo, stage="clickhouse", error=str(e)[:300])
     state.log_event(body.kind, **body.model_dump(exclude={"kind"}, exclude_defaults=True))
+    if body.kind == "status_set":
+        return {"ok": True, "status_set": github_status.on_action(body)}
     return {"ok": True}
 
 

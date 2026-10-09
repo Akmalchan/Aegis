@@ -43,6 +43,28 @@ components:
           items: { $ref: '#/components/schemas/Finding' }
         n_files: { type: integer }
         ms: { type: integer }
+    VerifyLayer:
+      type: object
+      required: [name, passed, details, ms]
+      properties:
+        name: { type: string, enum: [static, regression, targeted_test] }
+        passed: { type: boolean, nullable: true, description: "null = layer skipped (no test suite / no test_code), not required" }
+        details: { type: string }
+        ms: { type: integer }
+    VerifyResult:
+      type: object
+      required: [verified, layers, summary, ms]
+      properties:
+        verified: { type: boolean, description: every non-skipped layer passed }
+        repo: { type: string }
+        base_sha: { type: string }
+        head_sha: { type: string }
+        fingerprint: { type: string }
+        layers:
+          type: array
+          items: { $ref: '#/components/schemas/VerifyLayer' }
+        summary: { type: string, description: "e.g. finding gone at 1a2b3c4; tests: 14 passed; regression test fails on base / passes on fix" }
+        ms: { type: integer }
 security:
   - apiKey: []
 paths:
@@ -103,7 +125,7 @@ paths:
               properties:
                 agent: { type: string }
                 repo: { type: string }
-                kind: { type: string, enum: [status_set, issue_opened, issue_closed, pr_opened, pr_reviewed, dismissed, denied, email] }
+                kind: { type: string, enum: [status_set, issue_opened, issue_closed, pr_opened, pr_reviewed, dismissed, denied, email, verified, verify_failed] }
                 ref: { type: string, description: issue/PR number, sha, or url }
                 fingerprint: { type: string }
                 latency_ms: { type: integer }
@@ -116,6 +138,66 @@ paths:
               schema:
                 type: object
                 properties: { ok: { type: boolean } }
+  /status:
+    post:
+      operationId: set_status
+      summary: Set the AEGIS commit status on a sha (success | failure | pending). The scanner calls GitHub, context "AEGIS / security-check".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, sha, state, agent]
+              properties:
+                repo: { type: string, description: owner/name }
+                sha: { type: string, description: full commit sha }
+                state: { type: string, enum: [success, failure, pending, error] }
+                description: { type: string, description: "defaults to 'no new findings'; use '<n> new finding(s)' on failure" }
+                target_url: { type: string, description: Guild session url or issue/PR url }
+                agent: { type: string }
+      responses:
+        '200':
+          description: result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  repo: { type: string }
+                  sha: { type: string }
+                  state: { type: string }
+                  context: { type: string }
+  /verify:
+    post:
+      operationId: verify_fix
+      summary: Prove a fix is right. L1 the finding is gone at head_sha and no new findings vs base_sha (Semgrep). L2 the repo's own tests pass at head_sha. L3 your regression test FAILS at base_sha and PASSES at head_sha (a test that does not fail on the vulnerable code proves nothing). Call before opening or merging a fix PR.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, base_sha, head_sha, agent]
+              properties:
+                repo: { type: string, description: owner/name }
+                base_sha: { type: string, description: vulnerable commit (main before the fix) }
+                head_sha: { type: string, description: commit with the fix (fix branch head) }
+                fingerprint: { type: string, description: fingerprint of the finding being fixed }
+                rule_id: { type: string }
+                path: { type: string }
+                agent: { type: string }
+                test_code: { type: string, description: "pytest file source that exercises the vulnerability benignly, e.g. hits the endpoint with a quote character and asserts 200. Must fail on base_sha, pass on head_sha." }
+                test_path: { type: string, description: "where to write test_code, default tests/test_aegis_<fingerprint>.py" }
+      responses:
+        '200':
+          description: verification result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerifyResult' }
+        '404':
+          description: base_sha or head_sha cannot be checked out
   /insights:
     get:
       operationId: fleet_insights
