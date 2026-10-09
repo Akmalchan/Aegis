@@ -161,10 +161,29 @@ def api_fleet():
     return {"analyst": "guild" if config.GUILD_ENABLED else "openai", "ch": _ch_on(), "agents": out, "events": events}
 
 
+def _is_test_repo(repo) -> bool:
+    r = str(repo or "")
+    return r.startswith("local:") or r.startswith("/private/") or r == "selftest/repo"
+
+
+def _not_test(rows):
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            out.append(r); continue
+        if _is_test_repo(r.get("repo")):
+            continue
+        ref = str(r.get("ref") or "")
+        if str(r.get("kind", "")).startswith("handoff") and (ref.startswith("t->t:") or (r.get("agent") == "t" and r.get("to_agent") == "t")):
+            continue
+        out.append(r)
+    return out
+
+
 @router.get("/api/events", tags=["dashboard"])
 def api_events(n: int = Query(60, ge=1, le=500)):
     events, src = _events(n)
-    return {"source": src, "events": events}
+    return {"source": src, "events": _not_test(events)}
 
 
 @router.get("/api/timeline", tags=["dashboard"])
@@ -177,7 +196,7 @@ def api_timeline(weeks: int = Query(52, ge=1, le=1200), bucket: str = Query("wee
     else:  # rollup missing/empty -> scan aegis.findings
         rows, ok = _call("posture_timeline", weeks, bucket, default=[])
         src = "findings"
-    rows = _clean(list(rows or []))
+    rows = _not_test(_clean(list(rows or [])))
     for r in rows:
         r["week"] = str(r.get("week", ""))[:10]
         r["n"] = int(r.get("n") or 0)
@@ -234,6 +253,9 @@ def api_insights(hours: int = Query(24, ge=1, le=24 * 3650)):
     data = dict(_EMPTY_INSIGHTS)
     if isinstance(ins, dict):
         data.update(_clean(ins))
+        for k, v in list(data.items()):
+            if isinstance(v, list):
+                data[k] = _not_test(v)
     return {"ch": ok, "hours": hours, **data}
 
 
@@ -266,7 +288,7 @@ def api_alerts(hours: int = Query(48, ge=1, le=24 * 30)):
         "SELECT ts, agent, repo, ref FROM aegis.actions WHERE kind = 'denied' "
         "AND ts > now() - INTERVAL {h:UInt32} HOUR ORDER BY ts DESC LIMIT 10", {"h": hours}, "alerts") or []
     out = [{"type": "injection", "ts": r["last_ts"], "line": r["first_line"], **r} for r in inj] + [{"type": "denied", **r} for r in den]
-    out = _clean(out)
+    out = _not_test(_clean(out))
     out.sort(key=lambda r: r.get("ts") or 0, reverse=True)
     return {"ch": True, "alerts": out}
 
@@ -397,7 +419,8 @@ def _publish(items: list, agents: dict) -> None:
         sid = s.get("id")
         trig = s.get("trigger") or {}
         ag = trig.get("agent") or {}
-        name = ag.get("name") or agents.get(s.get("agent_id") or "") or s.get("agent_id") or "?"
+        name = (ag.get("name") or agents.get(s.get("agent_id") or "") or (trig.get("name") or "").split("--")[0]
+                or s.get("agent_name") or s.get("agent_id") or "agent")
         t = _guild_tasks.get(sid) or {"status": "UNKNOWN", "tasks": [], "note": ""}
         last = t["tasks"][-1] if t.get("tasks") else None
         st = t.get("status", "UNKNOWN")
@@ -476,7 +499,7 @@ def api_guild():
 def api_handoffs(n: int = Query(200, ge=1, le=1000)):
     """Agent-to-agent handoffs the guard validated (kind handoff_ok / handoff_rejected / handoff)."""
     events, src = _events(n)
-    rows = [e for e in events if str(e.get("kind", "")).startswith("handoff")]
+    rows = _not_test([e for e in events if str(e.get("kind", "")).startswith("handoff")])
     return {"source": src, "handoffs": rows[:40]}
 
 
@@ -495,7 +518,8 @@ def api_breakdown():
         return {"ch": False, "severity": [], "rules": [], "repos": []}
     sev = ch._rows("SELECT severity, count() AS n FROM aegis.findings GROUP BY severity ORDER BY n DESC", None, "breakdown") or []
     rules = ch._rows("SELECT rule_id, count() AS n FROM aegis.findings GROUP BY rule_id ORDER BY n DESC LIMIT 8", None, "breakdown") or []
-    repos = ch._rows("SELECT repo, count() AS n, uniqExact(fingerprint) AS uniq FROM aegis.findings GROUP BY repo ORDER BY n DESC LIMIT 8", None, "breakdown") or []
+    repos = ch._rows("SELECT repo, count() AS n, uniqExact(fingerprint) AS uniq FROM aegis.findings GROUP BY repo ORDER BY n DESC LIMIT 16", None, "breakdown") or []
+    repos = _not_test(repos)[:8]
     return _clean({"ch": True, "severity": sev, "rules": rules, "repos": repos})
 
 

@@ -269,6 +269,18 @@
     if (!scans.length) return;
     var now = Date.now() / 1000;
     var anchor = scans.find(function (e) { return e.verdict === "unsafe" && now - e.ts < 1800; }) || scans[0];
+    function runMerged(a) {
+      if (a.verdict !== "unsafe") return false;
+      var later = events.filter(function (e) { return e.repo === a.repo && e.ts >= a.ts; });
+      if (later.some(function (e) { return e.kind === "issue_closed"; })) return true;
+      var g = later.some(function (e) { return e.kind === "status_set" && e.state === "success" && e.ts > a.ts; });
+      return g && later.some(function (e) { return e.kind === "scan" && e !== a && e.verdict === "safe"; });
+    }
+    var liveRun = false;
+    if (anchor.verdict === "unsafe" && !runMerged(anchor) && now - anchor.ts > 180) {
+      var done8 = scans.find(function (e) { return e.verdict === "unsafe" && e.ts < anchor.ts && runMerged(e); });
+      if (done8) { anchor = done8; liveRun = true; }
+    }
     var repo = anchor.repo;
     var wake = events.find(function (e) { return e.kind === "wake" && e.repo === repo && e.ts <= anchor.ts + 1 && anchor.ts - e.ts < 120; });
     var t0 = wake ? wake.ts : anchor.ts;
@@ -302,7 +314,7 @@
     }
     var v = unsafe ? "unsafe" : "safe";
     setHTML($("incTitle"), esc(short(repo)) + '<span class="v ' + v + '">' + v + "</span>");
-    $("incHint").textContent = agentName(anchor.agent) + " · " + ago(t0);
+    setHTML($("incHint"), esc(agentName(anchor.agent) + " · " + ago(t0)) + (liveRun ? ' <span class="live-chip">live run in progress</span>' : ""));
     var lastDone = -1;
     steps.forEach(function (st, i) { if (/done/.test(st.cls)) lastDone = i; });
     setHTML($("pipeline"), steps.map(function (st, i) {
@@ -358,7 +370,10 @@
   }
   function loadHandoffs() {
     return getJSON("/api/handoffs").then(function (d) {
-      var rows = (d.handoffs || []).slice(0, 7);
+      var rows = (d.handoffs || []).filter(function (h) {
+        var r = String(h.repo || ""), ref = String(h.ref || "");
+        return !/^(local:|\/private\/)/.test(r) && r !== "selftest/repo" && ref.indexOf("t->t:") !== 0;
+      }).slice(0, 7);
       $("hoHint").textContent = rows.length ? rows.length + " handoffs checked by Semgrep" : "Agent → agent handoffs, checked by Semgrep";
       setHTML($("handoffs"), rows.length ? rows.map(function (h) {
         var m = /^(.+?)->(.+?):(.+)$/.exec(String(h.ref || ""));
@@ -437,8 +452,8 @@
     $("chatCount").textContent = events.length + " recent";
   }
   function loadEvents() {
-    return getJSON("/api/events?n=80").then(function (d) {
-      var events = (d.events || []).filter(function (e) { return e.repo && !/^local:|selftest/.test(e.repo); });
+    return getJSON("/api/events?n=200").then(function (d) {
+      var events = (d.events || []).filter(function (e) { return e.repo && !/^(local:|\/private\/)|selftest/.test(e.repo); });
       var fresh = lastTs == null ? [] : events.filter(function (e) { return e.ts > lastTs; });
       if (events.length) lastTs = Math.max(lastTs || 0, events[0].ts);
       renderChat(events, fresh);
@@ -458,11 +473,15 @@
   /* ================= alerts ================= */
   function loadAlerts() {
     return getJSON("/api/alerts?hours=48").then(function (d) {
-      var a = d.alerts || [];
+      var seen = {}, a = (d.alerts || []).filter(function (x) {
+        var k = x.type + "|" + x.repo + "|" + (x.type === "injection" ? x.path + ":" + x.line : x.agent);
+        if (seen[k] || /^(local:|\/private\/)/.test(String(x.repo || "")) || x.repo === "selftest/repo") return false;
+        seen[k] = 1; return true;
+      });
       $("alerts").hidden = !a.length;
       setHTML($("alerts"), a.slice(0, 2).map(function (x) {
         return x.type === "injection"
-          ? '<div class="alert"><span class="tag">Attack caught</span><span class="msg">' + esc(short(x.repo)) + " told the agent to approve itself. Flagged. <code>" + esc(x.path) + ":" + esc(x.line) + "</code></span></div>"
+          ? '<div class="alert"><span class="tag">Attack caught</span><span class="msg"><span>' + esc(short(x.repo)) + " told the agent to approve itself. Flagged.</span><code>" + esc(x.path) + ":" + esc(x.line) + "</code></span></div>"
           : '<div class="alert"><span class="tag">Blocked</span><span class="msg">' + esc(agentName(x.agent)) + " tried " + esc(short(x.repo)) + ". Outside its fence.</span></div>";
       }).join(""));
     }).catch(function () {});
@@ -673,6 +692,18 @@
     }).catch(function () {});
   }
 
+  /* ================= projector mode + sponsor strip ================= */
+  if (/[?&]projector\b/.test(location.search) || /projector/.test(location.hash)) document.body.classList.add("projector");
+  document.addEventListener("keydown", function (e) {
+    if ((e.key === "p" || e.key === "P") && !/INPUT|SELECT|TEXTAREA/.test((e.target || {}).tagName || "")) document.body.classList.toggle("projector");
+  });
+  function loadSponsors() {
+    return getJSON("/api/stats").then(function (s) {
+      if (s.findings) $("spCH").textContent = "ClickHouse — fleet memory · " + fmtK(s.findings) + " findings";
+      if (s.scans) $("spSG").textContent = "Semgrep — scan, guard, verify · " + fmtInt(s.scans) + " scans";
+    }).catch(function () {});
+  }
+
   /* ================= schedule ================= */
   function every(fn, ms) { fn(); setInterval(fn, ms); }
   loadFleet().then(function () { every(loadEvents, 2000); });
@@ -689,4 +720,5 @@
   every(loadPatrol, 1500);
   every(loadGuild, 4000);
   every(loadHandoffs, 5000);
+  every(loadSponsors, 10000);
 })();
