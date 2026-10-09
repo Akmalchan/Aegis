@@ -7,6 +7,7 @@ dependencies = [
     "clickhouse-connect>=1.10.0",
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
+    "mcp>=2.3.0",
     "openai>=3.27.0",
     "pydantic>=2.14.0",
     "pygithub>=2.10.0",

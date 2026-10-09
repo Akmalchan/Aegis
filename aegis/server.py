@@ -83,6 +83,11 @@ def _scan(repo: str, sha: str, base_sha: str, agent: str, trigger: str) -> dict:
         findings, n_files = scanner.scan(workdir, baseline_commit=baseline)
         if trigger == "full":
             findings += supply_chain.scan(workdir)  # vulnerable dependencies; [] without SEMGREP_APP_TOKEN
+            try:  # Round 2: bare `nosemgrep` suppressions (second pass with --disable-nosem)
+                from . import nosem
+                findings += nosem.audit(workdir)
+            except Exception as e:  # noqa
+                state.log_event("error", agent=agent, repo=repo, stage="nosem_audit", error=str(e)[:300])
         semgrep_ms = int((time.time() - t1) * 1000)
     enrich.apply(repo, findings)
     verdict = enrich.verdict(findings)
@@ -247,3 +252,7 @@ def manual_scan(repo: str, sha: str = "HEAD", full: bool = True):
     return process_push(repo, real_sha, files, pusher="manual")
 
 app.include_router(rules_api.router, dependencies=[Depends(require_key)])  # rule gate: /rules/propose, /rules
+from . import precision, rollout, second_opinion  # noqa: E402  Round 2 Semgrep features
+app.include_router(precision.router, dependencies=[Depends(require_key)])  # GET /rules/precision
+app.include_router(rollout.router, dependencies=[Depends(require_key)])  # POST /rules/rollout
+app.include_router(second_opinion.router, dependencies=[Depends(require_key)])  # POST /second-opinion

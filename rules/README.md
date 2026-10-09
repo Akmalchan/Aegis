@@ -24,10 +24,13 @@
 | `aegis.js-nosql-where-injection` | CWE-943 | ERROR | no (Mongo `$where`) |
 | `aegis.taint-request-to-sql` | CWE-89 | ERROR | no (taint: `request.args/form/get_json` -> `.execute/.executescript`; `int()` sanitizes) |
 | `aegis.taint-llm-output-to-exec` | CWE-94 | ERROR | no (taint: OpenAI/Anthropic/Gemini/LangChain/ollama response -> `eval/exec/os.system/subprocess/.execute/requests/open`; `json.loads`/`shlex.quote` sanitize) |
+| `aegis.tool-arg-to-shell` | CWE-78 | ERROR | no (`aegis-ai-agents.yml`, taint: parameter of a LangChain `@tool` / MCP `@mcp.tool()` function -> `subprocess(shell=True)`/`os.system`/`open`/`.execute`; `shlex.quote` sanitizes) |
+| `aegis.taint-secret-into-prompt` | CWE-200 | WARNING | no (`aegis-ai-agents.yml`, taint: `os.environ`/`os.getenv` -> `messages=` of OpenAI/Anthropic calls) |
+| `aegis.webhook-missing-signature-check` | CWE-345 | ERROR | no (`aegis-ai-agents.yml`: FastAPI `@app.post` on a webhook/hook/event path reads `await req.json()` outside an `hmac.compare_digest` guard) |
 
 ## Tests
 
-Fixtures live in `tests/` (`aegis.py`, `aegis.fixed.py`, `aegis-js.js`, `aegis-taint.py`) with
+Fixtures live in `tests/` (`aegis.py`, `aegis.fixed.py`, `aegis-js.js`, `aegis-taint.py`, `aegis-ai-agents.py`) with
 `# ruleid:` / `# ok:` annotations. Run from the repo root:
 
 ```sh

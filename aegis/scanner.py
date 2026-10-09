@@ -179,6 +179,11 @@ def scan(workdir: Path, files: list[str] | None = None, baseline_commit: str | N
             continue
         seen[key] = f
         uniq.append(f)
+    try:  # Round 2: per-rule precision from ClickHouse triage history; noisy rules demoted to INFO
+        from . import precision
+        precision.apply(uniq)
+    except Exception as e:  # noqa
+        print(f"[aegis] rule precision unavailable: {e}", file=sys.stderr)
     rank = {"ERROR": 0, "WARNING": 1, "INFO": 2}
     uniq.sort(key=lambda f: (rank.get(f["severity"], 3), f["path"], f["start_line"] or 0))
     return uniq, len(data.get("paths", {}).get("scanned", []))

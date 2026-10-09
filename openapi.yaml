@@ -414,3 +414,85 @@ paths:
                   n_results: { type: integer }
                   url: { type: string, description: the repo's code scanning page }
                   ms: { type: integer }
+  /rules/precision:
+    get:
+      operationId: rule_precision
+      summary: Per-rule precision from fleet triage history in ClickHouse. confirmed = distinct fingerprints with issue_opened or verified, dismissed = distinct fingerprints dismissed, precision = confirmed / (confirmed + dismissed). Rules with at least 5 decisions and precision below 0.3 are demoted to INFO in every scan (findings carry rule_precision, demoted=true and original_severity), so a noisy rule stops blocking without being deleted.
+      parameters:
+        - { name: hours, in: query, required: false, schema: { type: integer, default: 168, minimum: 1, maximum: 8760 }, description: look-back window }
+      responses:
+        '200':
+          description: precision table, lowest precision first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hours: { type: integer }
+                  clickhouse: { type: boolean }
+                  min_decisions: { type: integer }
+                  demote_below: { type: number }
+                  n_rules: { type: integer }
+                  rules: { type: array, items: { type: object, properties: { rule_id: { type: string }, confirmed: { type: integer }, dismissed: { type: integer }, decisions: { type: integer }, precision: { type: number }, demoted: { type: boolean } } } }
+  /rules/rollout:
+    post:
+      operationId: rollout_rule
+      summary: Fix once, prevent everywhere. Runs ONE rule (a bundled/learned rule id, or raw rule YAML) over every fleet repo at HEAD (or the given repos) and returns per-repo hits. Records a ClickHouse action of kind rollout per repo. Call after a learned rule passes the rule gate to see which other repos have the same bug. publish=true also publishes the rule to the Semgrep Registry as unlisted, only if a Semgrep login exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rule_id: { type: string, description: id of a rule under rules/ }
+                rule_yaml: { type: string, description: "Semgrep rule file (rules: list), used instead of rule_id" }
+                repos: { type: array, items: { type: string }, description: "owner/name list (default: every repo in fleet.json)" }
+                agent: { type: string }
+                publish: { type: boolean, default: false }
+      responses:
+        '200':
+          description: per-repo hits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  rule_id: { type: string }
+                  n_repos: { type: integer }
+                  repos_hit: { type: integer }
+                  total_hits: { type: integer }
+                  results: { type: array, items: { type: object, properties: { repo: { type: string }, sha: { type: string }, n_hits: { type: integer }, error: { type: string }, hits: { type: array, items: { type: object, properties: { rule_id: { type: string }, path: { type: string }, start_line: { type: integer }, lines: { type: string }, fingerprint: { type: string } } } } } } }
+                  published: { type: object, properties: { attempted: { type: boolean }, ok: { type: boolean }, reason: { type: string } } }
+                  ms: { type: integer }
+  /second-opinion:
+    post:
+      operationId: second_opinion
+      summary: Scan a code snippet with the local AEGIS rules AND with Semgrep's hosted MCP server (mcp.semgrep.ai, tool semgrep_scan), and return both plus the overlap by line. available=false with a reason when the hosted server is down or needs OAuth (set SEMGREP_MCP_TOKEN); the local result is always returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+                language: { type: string, default: python }
+                filename: { type: string }
+      responses:
+        '200':
+          description: local and hosted findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean }
+                  local: { type: array, items: { type: object } }
+                  hosted: { type: object, properties: { available: { type: boolean }, reason: { type: string }, findings: { type: array, items: { type: object } } } }
+                  overlap_lines: { type: array, items: { type: integer } }
+                  only_local_lines: { type: array, items: { type: integer } }
+                  only_hosted_lines: { type: array, items: { type: integer } }
+                  ms: { type: integer }

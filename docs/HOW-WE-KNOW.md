@@ -43,6 +43,14 @@ Every artifact one agent hands another passes through Semgrep first (`aegis/guar
 - `POST /verify` guards the remediator's `test_code` (remediator -> scanner) before pytest ever runs it; a rejected test gives layer `targeted_test` `passed: false`, `details: "test rejected by Semgrep: <rule ids> (not executed)"`.
 - `POST /guard` (`guard_artifact`) is the explicit form for anything else: `kind: code|test|patch|rule`, `from_agent`, `to_agent`, `content`; `kind: rule` runs `semgrep --validate` plus an optional fixture the rule must fire on. Rules proposed through `POST /rules/propose` go through the same validation.
 
+## 3c. We dogfood it: Semgrep runs on every edit our coding agents make
+
+Semgrep's own line is "MCP makes the scanner available, hooks make it run". We apply it twice.
+
+On the Guild agents, every one that writes code to GitHub has a numbered hard rule at the top of its prompt and `aegis_scanner_guard_artifact` in its `pick`: rulesmith guards the learned rule YAML and its fixture (`kind: rule`) before it creates `rules/learned/<fp>.yml` and opens the PR; verifier guards its comment before writing it. `clean: false` means no GitHub write, a `handoff_rejected` record_action and a line in the agent's output, so the refusal shows up in the session log and in `/insights` under `handoffs`.
+
+On us: `.claude/settings.json` in this repo wires two Claude Code hooks. `SessionStart` runs `semgrep mcp -k inject-secure-defaults -a claude`, which adds Semgrep's secure-defaults guidance to the session context. `PostToolUse` on `Edit|Write|MultiEdit` runs `.claude/hooks/semgrep-post-edit.sh` on the file Claude just wrote. With a Semgrep login (`SEMGREP_APP_TOKEN` or `semgrep login`) it hands off to Semgrep's own `semgrep mcp -k post-tool-cli-scan -a claude`; that hook exits 2 with "No SEMGREP_APP_TOKEN found" without one (checked on CLI 1.180.0), so offline the script scans the file with this repo's `rules/` and exits 2 with the findings, which Claude Code feeds back to the model. Manual test: a file with `subprocess.run(cmd, shell=True)` returns exit 2 with `rules.aegis.subprocess-shell-true`; `aegis/guard.py` returns 0.
+
 ## 4. What the diff can miss, the full scan catches
 
 The diff scan sees only what a push introduced. `aegis-warden` runs on a Guild cron trigger (`*/30 * * * *`) and calls `scan_full` on every repo's default branch. Full scans add `supply_chain.scan` (vulnerable dependencies), run `p/secrets` over the whole tree, and close Issues whose fingerprint is gone.
@@ -59,3 +67,13 @@ Semgrep finds what rules cover; a bug with no matching pattern is invisible. Con
 4. `aegis_remediator` opens the Issue and the fix PR with a regression test
 5. `verify_fix`: L1 static, L2 suite, L3 targeted all pass
 6. PR labelled `aegis:verified`, `set_status success` on the fix sha
+
+## 7. Round 2 Semgrep features
+
+**Rule precision from fleet memory.** Every triage decision is a ClickHouse action on a fingerprint. `GET /rules/precision?hours=168` joins actions to findings by fingerprint and counts, per rule, distinct fingerprints that were confirmed (`issue_opened`, `verified`) or `dismissed`. Every scan attaches `rule_precision` to findings of rules with history. A rule with at least 5 decisions and precision under 0.3 is demoted to `INFO` (`demoted: true`, `original_severity` kept), so a noisy rule stops blocking pushes without anyone deleting it. On 2026-10-09 the busiest rule, Flask `app.run(host=...)`, sat at 0.8 over 5 decisions; nothing was demoted yet. Code: `aegis/precision.py`, hooked at the end of `scanner.scan`.
+
+**Fix once, prevent everywhere.** `POST /rules/rollout {rule_id | rule_yaml, repos?}` runs only that rule over every fleet repo at HEAD and returns per-repo hits; each repo gets a `rollout` action in ClickHouse. Rolling out `aegis.flask-debug-true` over the 9 fleet repos took 6.2 s and found 1 hit (`aegis-demo-target/app.py:38`). With `publish: true` it would also run `semgrep publish --visibility=unlisted`, but this machine has no Semgrep login, so the response says it skipped. Code: `aegis/rollout.py`.
+
+**nosemgrep audit.** A bare `# nosemgrep` hides a finding forever and records no reason. In `scan_full` only, a second Semgrep pass with `--disable-nosem` runs over the files that contain `nosemgrep`; any finding hidden by a comment with no `-- reason` after it becomes `aegis.nosemgrep-without-reason` (WARNING), listing the rules it hides in `suppressed_rule_ids`. A comment that names a different rule id does not count as suppressing the finding. Regex from `docs/round2-drafts/nosem.yml`. Code: `aegis/nosem.py`.
+
+**Second opinion from Semgrep's hosted MCP.** `POST /second-opinion {code, language}` scans the snippet locally and calls `semgrep_scan` on `https://mcp.semgrep.ai/mcp` over streamable HTTP (`mcp` Python SDK), then reports overlapping and one-sided lines. As of 2026-10-09 the hosted server answers 401 and asks for OAuth, so the endpoint returns `available: false` with that reason plus the local findings. Setting `SEMGREP_MCP_TOKEN` sends a bearer token. Code: `aegis/second_opinion.py`.

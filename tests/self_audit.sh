@@ -10,7 +10,7 @@ mkdir -p "$(dirname "$OUT")"
 "$SEMGREP" scan --metrics=off --quiet --json \
   --config p/security-audit --config p/secrets --config p/python --config p/javascript --config p/typescript \
   --config rules/ \
-  --exclude '_variants' --exclude 'demo/' --exclude 'rules/tests' --exclude 'build' \
+  --exclude '_variants' --exclude 'demo/' --exclude 'rules/tests' --exclude 'docs/round2-drafts' --exclude 'build' \
   --exclude 'node_modules' --exclude '.venv' --exclude '.cache' --exclude 'state' \
   . > "$OUT" 2> "$OUT.err"
 rc=$?
