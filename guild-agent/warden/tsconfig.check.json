@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "zod": ["../_shims/node_modules/zod"] },
+    "typeRoots": ["../_shims/node_modules/@types"]
+  },
+  "include": ["agent.ts", "../_shims/guild.d.ts"]
+}

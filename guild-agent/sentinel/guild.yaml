@@ -1,0 +1,81 @@
+# AEGIS sentinel — fleet manifest consumed by fleet/deploy.sh (stream A2).
+# Not read by the Guild CLI for TypeScript agents (the CLI's own manifest is guild.json, gitignored, written
+# by `guild agent init`). deploy.sh substitutes __AGENT_NAME__ / __OWNER__ here and in agent.ts, then runs
+# `guild agent save --publish` and creates the triggers listed under `triggers`.
+name: __AGENT_NAME__
+owner: __OWNER__
+type: GUILD_TYPESCRIPT
+template: LLM
+entry: agent.ts
+category: development
+description: >-
+  AEGIS sentinel: on every push or pull request, scans the change with Semgrep through the
+  aegis-scanner integration and autonomously sets the commit status, files Issues with fixes,
+  opens fix PRs, and closes resolved Issues.
+
+llm_preferences:
+  - provider: openai
+  - provider: anthropic
+mode: one-shot
+use_workspace_agents: false
+
+integrations:
+  guildai~github:
+    package: "@guildai-services/guildai~github"
+    export: gitHubTools
+    tools:
+      - github_repos_get_content
+      - github_repos_create_commit_status
+      - github_repos_list_pull_requests_associated_with_commit
+      - github_issues_list_for_repo
+      - github_issues_create
+      - github_issues_create_comment
+      - github_issues_update
+      - github_pulls_create_review
+      - github_pulls_create
+      - github_git_get_ref
+      - github_git_create_ref
+      - github_repos_create_or_update_file_contents
+  __OWNER__~aegis-scanner:
+    package: "@guildai-services/__OWNER__~aegis-scanner"
+    export: AegisScannerTools
+    spec: ../../openapi.yaml
+    auth: api-key            # header X-AEGIS-Key, connected with `guild integration connect aegis-scanner --owner __OWNER__ --token ...`
+    tools:
+      - aegis_scanner_scan_diff
+      - aegis_scanner_scan_full
+      - aegis_scanner_record_action
+
+builtins:
+  - skillsTools            # skills_search + skills_activate (aegis~security-review, aegis~remediation-playbook)
+
+# Sub-agents (stream A3). Published agents are callable through their `/tool` sub-package:
+#   npm install --save @guildai/__OWNER__~aegis-triage  → import triageTool from "@guildai/__OWNER__~aegis-triage/tool"
+# Until they are published the sentinel carries the triage/remediation/verification logic inline in its prompt.
+# sub_agents:
+#   - name: __OWNER__~aegis-triage
+#     version: "1.0.0"
+#     tool: triage          # input {repo, sha, finding, context?} → {confirmed, confidence, severity, cwe, impact, explanation}
+#   - name: __OWNER__~aegis-remediator
+#     version: "1.0.0"
+#     tool: remediator      # input {repo, sha, finding, triage} → Issue + branch + PR
+#   - name: __OWNER__~aegis-verifier
+#     version: "1.0.0"
+#     tool: verifier        # input {repo, sha, issue_number, fingerprint} → comment + close
+
+# Triggers created per repo by deploy.sh (2 per repo, 3 repos per agent → 6 per agent, 18 for the fleet).
+triggers:
+  - type: webhook
+    integration: github
+    event: push
+    service_config: { repo: "<owner/name from fleet.json>" }
+  - type: webhook
+    integration: github
+    event: pull_request
+    service_config: { repo: "<owner/name from fleet.json>" }
+
+# Workspace variables (guild workspace variable set KEY=value --workspace <owner>~<workspace>). None are required
+# by this agent: the agent name is baked in at deploy time, the scanner URL and key live in the integration.
+env: []
+
+# Credential policy (fleet/policies.sh): ALLOW github_* on the repos in fleet.json for this agent, DENY all other repos.

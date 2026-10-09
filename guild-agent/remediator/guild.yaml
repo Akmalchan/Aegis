@@ -1,0 +1,14 @@
+# guild.yaml for aegis-remediator (Guild TypeScript agent). Guild validates this at build time.
+# Deploy: guild agent init --name aegis-remediator --template LLM --agent-type GUILD_TYPESCRIPT --directory .
+#         npm install && guild agent save --message "deploy" --wait --publish
+# agent: aegis-remediator (description is taken from README.md at publish)
+integrations:
+  - name: guildai~github
+    version: "*"
+  # Custom integration published by stream B from openapi.yaml (fleet/integration.sh). Replace __OWNER__.
+  - name: __OWNER__~aegis-scanner
+    version: "*"
+    tools: [aegis_scanner_record_action]
+models:
+  - provider: openai
+  - provider: anthropic

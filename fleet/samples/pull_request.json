@@ -1,0 +1,48 @@
+{
+  "action": "synchronize",
+  "number": 7,
+  "pull_request": {
+    "id": 2611904477,
+    "number": 7,
+    "state": "open",
+    "title": "Add /search endpoint",
+    "body": "Adds full-text search over snippet titles and content so the CLI can do `snipbox search <q>`.",
+    "html_url": "https://github.com/vincivv/snipbox/pull/7",
+    "draft": false,
+    "user": { "login": "vincivv", "type": "User" },
+    "head": {
+      "label": "vincivv:feature/search",
+      "ref": "feature/search",
+      "sha": "c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0",
+      "repo": { "name": "snipbox", "full_name": "vincivv/snipbox", "owner": { "login": "vincivv" } }
+    },
+    "base": {
+      "label": "vincivv:main",
+      "ref": "main",
+      "sha": "168f7e8e52c9f84163b72b6db9131fa7e48f70a3",
+      "repo": { "name": "snipbox", "full_name": "vincivv/snipbox", "owner": { "login": "vincivv" } }
+    },
+    "merged": false,
+    "commits": 1,
+    "additions": 23,
+    "deletions": 2,
+    "changed_files": 2,
+    "created_at": "2026-10-09T19:58:03Z",
+    "updated_at": "2026-10-09T20:14:37Z"
+  },
+  "before": "7b1e0d4c3a2f9e8d7c6b5a4f3e2d1c0b9a8f7e6d",
+  "after": "c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0",
+  "repository": {
+    "id": 1098273645,
+    "name": "snipbox",
+    "full_name": "vincivv/snipbox",
+    "private": false,
+    "owner": { "login": "vincivv", "type": "User" },
+    "html_url": "https://github.com/vincivv/snipbox",
+    "description": "Tiny FastAPI + SQLite snippet store with a CLI",
+    "default_branch": "main",
+    "language": "Python",
+    "visibility": "public"
+  },
+  "sender": { "login": "vincivv", "type": "User" }
+}

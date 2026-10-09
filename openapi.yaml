@@ -24,7 +24,7 @@ components:
         message: { type: string }
         severity: { type: string, enum: [ERROR, WARNING, INFO] }
         cwe: { type: string }
-        fingerprint: { type: string, description: stable id = sha1(rule_id|path|lines)[:12] }
+        fingerprint: { type: string, description: "stable id = sha1(rule_id, path, lines) truncated to 12 chars" }
         fix: { type: string, description: replacement code suggested by the rule, when available }
         fix_hint: { type: string, description: how to fix when no mechanical fix exists }
         seen_before: { type: integer, description: times this fingerprint was seen across the fleet (ClickHouse) }

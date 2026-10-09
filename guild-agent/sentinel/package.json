@@ -1,0 +1,23 @@
+{
+  "name": "aegis-sentinel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AEGIS sentinel agent for Guild.ai (one agent per three GitHub repos)",
+  "scripts": {
+    "build": "tsc",
+    "bundle": "npm run build && esbuild dist/agent.js --bundle --loader:.md=text --platform=node --format=esm --external:zod --external:@guildai/agents-sdk | gzip | base64 > agent.js.gz",
+    "typecheck": "tsc --noEmit",
+    "typecheck:offline": "tsc -p tsconfig.offline.json --noEmit"
+  },
+  "dependencies": {
+    "@guildai/agents-sdk": "*",
+    "@guildai-services/guildai~github": "*",
+    "@guildai-services/__OWNER__~aegis-scanner": "*",
+    "zod": "~4.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.0.0"
+  }
+}

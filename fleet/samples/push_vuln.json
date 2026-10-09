@@ -1,0 +1,50 @@
+{
+  "ref": "refs/heads/main",
+  "before": "168f7e8e52c9f84163b72b6db9131fa7e48f70a3",
+  "after": "a3f1c2d4e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0",
+  "created": false,
+  "deleted": false,
+  "forced": false,
+  "compare": "https://github.com/vincivv/snipbox/compare/168f7e8e52c9...a3f1c2d4e5b6",
+  "repository": {
+    "id": 1098273645,
+    "name": "snipbox",
+    "full_name": "vincivv/snipbox",
+    "private": false,
+    "owner": { "name": "vincivv", "login": "vincivv", "email": "dialmair.7@gmail.com", "type": "User" },
+    "html_url": "https://github.com/vincivv/snipbox",
+    "description": "Tiny FastAPI + SQLite snippet store with a CLI",
+    "default_branch": "main",
+    "language": "Python",
+    "visibility": "public"
+  },
+  "pusher": { "name": "vincivv", "email": "dialmair.7@gmail.com" },
+  "sender": { "login": "vincivv", "type": "User" },
+  "head_commit": {
+    "id": "a3f1c2d4e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0",
+    "tree_id": "5d2c8b1a9f0e7d6c5b4a3f2e1d0c9b8a7f6e5d4c",
+    "message": "feat: full-text search endpoint + debug token for local testing",
+    "timestamp": "2026-10-09T13:05:21-07:00",
+    "url": "https://github.com/vincivv/snipbox/commit/a3f1c2d4e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0",
+    "author": { "name": "vincivv", "email": "dialmair.7@gmail.com", "username": "vincivv" },
+    "committer": { "name": "vincivv", "email": "dialmair.7@gmail.com", "username": "vincivv" },
+    "added": [],
+    "removed": [],
+    "modified": ["snipbox/api.py", "snipbox/db.py", "snipbox/config.py"]
+  },
+  "commits": [
+    {
+      "id": "a3f1c2d4e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0",
+      "tree_id": "5d2c8b1a9f0e7d6c5b4a3f2e1d0c9b8a7f6e5d4c",
+      "distinct": true,
+      "message": "feat: full-text search endpoint + debug token for local testing",
+      "timestamp": "2026-10-09T13:05:21-07:00",
+      "url": "https://github.com/vincivv/snipbox/commit/a3f1c2d4e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0",
+      "author": { "name": "vincivv", "email": "dialmair.7@gmail.com", "username": "vincivv" },
+      "committer": { "name": "vincivv", "email": "dialmair.7@gmail.com", "username": "vincivv" },
+      "added": [],
+      "removed": [],
+      "modified": ["snipbox/api.py", "snipbox/db.py", "snipbox/config.py"]
+    }
+  ]
+}

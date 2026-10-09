@@ -1,0 +1,12 @@
+# guild.yaml for aegis-triage (Guild TypeScript agent). Guild validates this at build time.
+# Deploy: guild agent init --name aegis-triage --template LLM --agent-type GUILD_TYPESCRIPT --directory .
+#         npm install && guild agent save --message "deploy" --wait --publish
+# agent: aegis-triage (description is taken from README.md at publish)
+integrations:
+  - name: guildai~github
+    version: "*"
+  # Custom integration published by stream B from openapi.yaml (fleet/integration.sh). Replace __OWNER__.
+  # triage only reads code: GitHub is enough, no scanner tools.
+models:
+  - provider: openai
+  - provider: anthropic

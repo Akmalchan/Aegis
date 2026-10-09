@@ -1,0 +1,10 @@
+# Paste under the top level of guild-agent/sentinel/guild.yaml (owned by A1). Replace __OWNER__ with the Guild owner.
+# Guild resolves each entry to a published version; a range with no published version is a build error,
+# so publish triage/remediator/verifier BEFORE saving the sentinel.
+sub_agents:
+  - name: __OWNER__~aegis-triage
+    version: "^0.1.0"
+  - name: __OWNER__~aegis-remediator
+    version: "^0.1.0"
+  - name: __OWNER__~aegis-verifier
+    version: "^0.1.0"

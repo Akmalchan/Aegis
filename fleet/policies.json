@@ -1,0 +1,202 @@
+{
+  "generated_from": "fleet.json",
+  "credential": "guildai~github",
+  "resource_shape_note": "BEST GUESS: --resources '{\"repositories\":[\"owner/name\",...]}'. Verify the key name in app.guild.ai > Credentials > GitHub > Policies > Add rule (the UI shows the exact JSON it sends). DENY beats ALLOW. '*' in operations means 'leave --operations empty = all operations'.",
+  "delete_default_rule": "Yes. The default unscoped ALLOW-all rule must be deleted or the per-agent ALLOW rules are meaningless.",
+  "rules": [
+    {
+      "credential": "guildai~github",
+      "decision": "ALLOW",
+      "agents": [
+        "aegis-sentinel-01"
+      ],
+      "operations": [
+        "repos_get",
+        "repos_get_content",
+        "repos_get_branch",
+        "repos_create_commit_status",
+        "repos_list_pull_requests_associated_with_commit",
+        "repos_create_or_update_file_contents",
+        "git_create_ref",
+        "git_get_ref",
+        "issues_create",
+        "issues_update",
+        "issues_create_comment",
+        "issues_list_for_repo",
+        "issues_list_comments",
+        "pulls_create",
+        "pulls_create_review",
+        "pulls_list"
+      ],
+      "resources": {
+        "repositories": [
+          "andriidrok1/aegis-demo-target",
+          "andriidrok1/aegis-target-03",
+          "vincivv/snipbox"
+        ]
+      },
+      "note": "aegis-sentinel-01 may act only on its 3 repos"
+    },
+    {
+      "credential": "guildai~github",
+      "decision": "DENY",
+      "agents": [
+        "aegis-sentinel-01"
+      ],
+      "operations": [
+        "*"
+      ],
+      "resources": {
+        "repositories": [
+          "Akmalchan/Aegis",
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06",
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09"
+        ]
+      },
+      "note": "aegis-sentinel-01 explicitly denied on every other fleet repo (demo: visible refusal)"
+    },
+    {
+      "credential": "guildai~github",
+      "decision": "ALLOW",
+      "agents": [
+        "aegis-sentinel-02"
+      ],
+      "operations": [
+        "repos_get",
+        "repos_get_content",
+        "repos_get_branch",
+        "repos_create_commit_status",
+        "repos_list_pull_requests_associated_with_commit",
+        "repos_create_or_update_file_contents",
+        "git_create_ref",
+        "git_get_ref",
+        "issues_create",
+        "issues_update",
+        "issues_create_comment",
+        "issues_list_for_repo",
+        "issues_list_comments",
+        "pulls_create",
+        "pulls_create_review",
+        "pulls_list"
+      ],
+      "resources": {
+        "repositories": [
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06"
+        ]
+      },
+      "note": "aegis-sentinel-02 may act only on its 3 repos"
+    },
+    {
+      "credential": "guildai~github",
+      "decision": "DENY",
+      "agents": [
+        "aegis-sentinel-02"
+      ],
+      "operations": [
+        "*"
+      ],
+      "resources": {
+        "repositories": [
+          "Akmalchan/Aegis",
+          "andriidrok1/aegis-demo-target",
+          "andriidrok1/aegis-target-03",
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09",
+          "vincivv/snipbox"
+        ]
+      },
+      "note": "aegis-sentinel-02 explicitly denied on every other fleet repo (demo: visible refusal)"
+    },
+    {
+      "credential": "guildai~github",
+      "decision": "ALLOW",
+      "agents": [
+        "aegis-sentinel-03"
+      ],
+      "operations": [
+        "repos_get",
+        "repos_get_content",
+        "repos_get_branch",
+        "repos_create_commit_status",
+        "repos_list_pull_requests_associated_with_commit",
+        "repos_create_or_update_file_contents",
+        "git_create_ref",
+        "git_get_ref",
+        "issues_create",
+        "issues_update",
+        "issues_create_comment",
+        "issues_list_for_repo",
+        "issues_list_comments",
+        "pulls_create",
+        "pulls_create_review",
+        "pulls_list"
+      ],
+      "resources": {
+        "repositories": [
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09"
+        ]
+      },
+      "note": "aegis-sentinel-03 may act only on its 3 repos"
+    },
+    {
+      "credential": "guildai~github",
+      "decision": "DENY",
+      "agents": [
+        "aegis-sentinel-03"
+      ],
+      "operations": [
+        "*"
+      ],
+      "resources": {
+        "repositories": [
+          "Akmalchan/Aegis",
+          "andriidrok1/aegis-demo-target",
+          "andriidrok1/aegis-target-03",
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06",
+          "vincivv/snipbox"
+        ]
+      },
+      "note": "aegis-sentinel-03 explicitly denied on every other fleet repo (demo: visible refusal)"
+    },
+    {
+      "credential": "guildai~github",
+      "decision": "ALLOW",
+      "agents": [
+        "aegis-warden"
+      ],
+      "operations": [
+        "repos_get",
+        "repos_get_content",
+        "issues_list_for_repo",
+        "issues_create",
+        "issues_create_comment"
+      ],
+      "resources": {
+        "repositories": [
+          "Akmalchan/Aegis",
+          "andriidrok1/aegis-demo-target",
+          "andriidrok1/aegis-target-03",
+          "andriidrok1/aegis-target-04",
+          "andriidrok1/aegis-target-05",
+          "andriidrok1/aegis-target-06",
+          "andriidrok1/aegis-target-07",
+          "andriidrok1/aegis-target-08",
+          "andriidrok1/aegis-target-09",
+          "vincivv/snipbox"
+        ]
+      },
+      "note": "warden reads every fleet repo, writes drift report issue"
+    }
+  ]
+}

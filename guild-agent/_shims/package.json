@@ -1,0 +1,6 @@
+{
+  "name": "aegis-typecheck-shims",
+  "private": true,
+  "description": "Offline typecheck helper: real zod + typescript, ambient stubs for the private @guildai packages. Not deployed.",
+  "devDependencies": { "typescript": "^5.6.0", "zod": "~4.3.0" }
+}

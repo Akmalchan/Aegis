@@ -1,0 +1,16 @@
+# guild.yaml for aegis-warden (Guild TypeScript agent). Guild validates this at build time.
+# Deploy: guild agent init --name aegis-warden --template LLM --agent-type GUILD_TYPESCRIPT --directory .
+#         npm install && guild agent save --message "deploy" --wait --publish
+# agent: aegis-warden (description is taken from README.md at publish)
+integrations:
+  - name: guildai~github
+    version: "*"
+  - name: guildai~email
+    version: "*"
+  # Custom integration published by stream B from openapi.yaml (fleet/integration.sh). Replace __OWNER__.
+  - name: __OWNER__~aegis-scanner
+    version: "*"
+    tools: [aegis_scanner_scan_full, aegis_scanner_fleet_insights, aegis_scanner_record_action]
+models:
+  - provider: openai
+  - provider: anthropic
