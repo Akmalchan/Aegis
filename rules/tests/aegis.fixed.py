@@ -26,9 +26,9 @@ def sql(cur, q, uid):
 
 # ---------------------------------------------------------------- aegis.hardcoded-secret
 # ruleid: aegis.hardcoded-secret
-import os; ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]
+import os; ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 # ruleid: aegis.hardcoded-secret
-import os; db_password = os.environ["db_password"]
+import os; db_password = os.environ.get("db_password", "")
 
 
 class Client:

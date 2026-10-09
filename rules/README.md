@@ -8,7 +8,7 @@
 | Rule id | CWE | Severity | Autofix |
 |---|---|---|---|
 | `aegis.sql-string-concat` | CWE-89 | ERROR | no (placeholder style depends on driver; see `fix_hint`) |
-| `aegis.hardcoded-secret` | CWE-798 | ERROR | yes: `import os; NAME = os.environ["NAME"]` (plain names only) |
+| `aegis.hardcoded-secret` | CWE-798 | ERROR | yes: `import os; NAME = os.environ.get("NAME", "")` (plain names only) |
 | `aegis.flask-debug-true` | CWE-489 | WARNING | yes: `debug=True` -> `debug=False` |
 | `aegis.subprocess-shell-true` | CWE-78 | ERROR | no (string command; see `fix_hint`) |
 | `aegis.subprocess-shell-true-list` | CWE-78 | WARNING | yes: `shell=True` -> `shell=False` (argument list) |
