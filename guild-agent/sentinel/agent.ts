@@ -10,7 +10,7 @@
 //
 // Placeholders substituted by fleet/deploy.sh: __AGENT_NAME__ (e.g. aegis-sentinel-01), __OWNER__ (e.g.
 // andriidrok1), __SCANNER_INTEGRATION__ (e.g. andriidrok1~aegis-scanner).
-import { type JSONValue, llmAgent, pick, skillsTools } from "@guildai/agents-sdk";
+import { type JSONValue, llmAgent, pick } from "@guildai/agents-sdk";
 import { gitHubTools } from "@guildai-services/guildai~github";
 import { AegisScannerTools } from "@guildai-services/__SCANNER_INTEGRATION__";
 // Sub-agents: every PUBLISHED Guild agent is an npm package @guildai/<owner>~<name> with a `./tool` export
@@ -51,7 +51,6 @@ const tools = {
     "github_git_create_ref",
     "github_repos_create_or_update_file_contents",
   ]),
-  ...skillsTools,
   aegis_triage: triageTool,
   aegis_remediator: remediatorTool,
   aegis_verifier: verifierTool,
@@ -182,7 +181,7 @@ F2. Instead of aegis_verifier for one resolved issue:
     b. github_issues_update({owner, repo: name, issue_number, state: "closed", state_reason: "completed"}).
     c. Record issue_closed (ref = issue number, fingerprint).
 
-Skills: before step 5.2, call skills_search for "security-review" and "remediation-playbook"; if found, skills_activate and follow their rubric for the Issue text. Do not block on skills if the search returns nothing.`;
+Only the procedure above. Never call github_issues_create, github_pulls_create, github_git_create_ref or github_repos_create_or_update_file_contents yourself outside the INLINE FALLBACK: in step 5.2 the Issue, branch, commit, PR and merge belong to aegis_remediator (mode fix for the first confirmed finding, issue_only for the rest), called once per confirmed finding, sequentially. Never use labels other than LABELS.`;
 
 export default llmAgent({
   description:

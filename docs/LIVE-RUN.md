@@ -180,3 +180,21 @@ Round-2 fixes (remediator 1.0.7): commit through the Git Data API with plain tex
 exactly one commit per run and no self-edits after a failed verify; the targeted test must import the app module
 inside the test function (after `monkeypatch.setenv` for secrets) so a file that does not import fails L3; no GitHub
 closing keywords in PR text. Reset at 21:23:43 (`2662bbd`, clean).
+
+### Round 2 (21:24:52 push `cd10661`, session `01a1228e-0821-5f3d-0000-b118de0d5899`, remediator 1.0.8)
+
+| time | what |
+|---|---|
+| 21:24:52 | push vulnerable `app.py` to main |
+| 21:25:14 | status **failure** "4 new finding(s)" (22 s) |
+| 21:26:01 | `fix_code`; 21:26:07–19 Git Data API commit `45e5a29` on `aegis/fix-*` (no base64, file parses) |
+| 21:26:24 | `verify_fix` → verified |
+| 21:26:40 | Issue **#68** (story), created **without labels** |
+| 21:27:03 | PR **#69** (first `github_pulls_create` errored, retry ok), 21:27:10 label `aegis:verified`, 21:27:17 status success "fix verified: 2 layers passed" |
+| 21:27:26 | **merged by the agent** → main `965bbe7` (push → merge 2 min 34 s) |
+| 21:27:47 | merge-push session `01a12290-6017…` → status **success** "no new findings" (push → ✅ 2 min 55 s) |
+| 21:28–21:30 | Issues #70 #71 #72 (`issue_only`, labelled) |
+
+Gap: #68 stayed open. The merge-push session listed `labels=aegis` Issues, #68 was not among them (no label), so step 4.3
+had no candidates and never ran `scan_full`/verifier. Fix (remediator **1.0.9** `01a12293-228a-cf83-0000-a48ae9428606`,
+21:30:30): mandatory `github_issues_add_labels ["aegis","security"]` right after `github_issues_create`.
