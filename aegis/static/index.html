@@ -215,6 +215,45 @@
     </div>
   </section>
 </section>
+
+<!-- ============================ CLI (both pages) ============================ -->
+<section class="block cli" id="cli">
+  <div class="block-head"><h2>Run it yourself.</h2><span class="sub">Same engine and rules as the fleet. Your laptop, your CI. No server, no account.</span></div>
+  <div class="cli-grid">
+    <div class="cli-left">
+      <span class="pill-y">Open source CLI</span>
+      <div class="cli-install">
+        <code id="cliCmd">pipx install git+https://github.com/Akmalchan/Aegis</code>
+        <button class="cli-copy" id="cliCopy" type="button" aria-label="Copy install command">Copy</button>
+      </div>
+      <ul class="cli-cmds">
+        <li><code>aegis scan</code><span>Scan this repo. Exit 1 if unsafe, so CI fails the build.</span></li>
+        <li><code>aegis scan --diff main</code><span>Only what this branch introduced, like a push.</span></li>
+        <li><code>aegis scan owner/repo --sarif out.sarif</code><span>Any GitHub repo, plus SARIF for the Security tab.</span></li>
+        <li><code>aegis fleet</code><span>Fleet numbers and the exposure clock.</span></li>
+        <li><code>aegis watch</code><span>Live feed of the agents, in your terminal.</span></li>
+      </ul>
+    </div>
+    <div class="term" aria-label="Example aegis scan output">
+      <div class="term-bar"><i></i><i></i><i></i><span>~/my-app</span></div>
+<pre class="term-body"><span class="t-l"><span class="t-p">$</span> aegis scan --diff main</span>
+<span class="t-l"><b>◆ AEGIS</b> <span class="t-d">· semgrep-powered security scan</span></span>
+<span class="t-l"> </span>
+<span class="t-l"> <span class="t-r">✗ HIGH</span>  <b>sql-string-concat</b>  <span class="t-c">app.py:28</span>  <span class="t-d">CWE-89</span></span>
+<span class="t-l"><span class="t-d">        │</span> cur.execute("... LIKE '%" + q + "%'")</span>
+<span class="t-l"><span class="t-d">        ⤷ taint</span> source :26 → sink :28</span>
+<span class="t-l"><span class="t-d">        ⏱</span> <span class="t-g">new in this change · caught on day 0</span></span>
+<span class="t-l"> </span>
+<span class="t-l"> <span class="t-r">✗ HIGH</span>  <b>hardcoded-secret</b>  <span class="t-c">app.py:7</span>  <span class="t-d">CWE-798</span></span>
+<span class="t-l"><span class="t-d">        ✓ fix</span> <span class="t-g">ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")</span></span>
+<span class="t-l"> </span>
+<span class="t-l"><span class="t-d">────────────────────────────────────────</span></span>
+<span class="t-l"> <span class="t-r">✗ UNSAFE</span>  3 findings · <span class="t-r">2 high</span> · <span class="t-y">1 medium</span>  <span class="t-d">4.2s</span></span>
+<span class="t-l"> <span class="t-g">✓</span> 2 with a ready-made Semgrep autofix</span>
+<span class="t-l"><span class="t-p">$</span> <span class="t-cur"></span></span></pre>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer class="foot">
@@ -226,5 +265,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-k" id="toastK"></span><span class="toast-t" id="toastT"></span></div>
 <div class="tip" id="tip" hidden></div>
 <script src="/static/app.js?v=11"></script>
+<script src="/static/cli.js?v=1"></script>
 </body>
 </html>
