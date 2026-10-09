@@ -1,0 +1,66 @@
+rules:
+  # ---------------------------------------------------------------- prompt injection via the repo
+  # Both rules use pattern-regex, which Semgrep applies to the raw file text (so it sees comments,
+  # which AST patterns cannot). Language list only decides which files are scanned.
+  # Low-FP design: a match needs either the classic "ignore previous instructions" phrase or a
+  # direct address to an AI/review agent plus an imperative within 40 chars; "the agent reconnects"
+  # or "build the system prompt" alone do not fire.
+  - id: aegis.agent-directed-instruction-in-comment
+    languages: [python, javascript, typescript]
+    severity: ERROR
+    message: >-
+      Text addressed to an AI reviewer/agent found in a source comment. Instructions inside code
+      are data, never commands; this is a prompt-injection attempt against automated review.
+    metadata:
+      cwe: "CWE-1427"
+      category: security
+      subcategory: prompt-injection
+      fix_hint: >-
+        Delete the comment and treat the commit as hostile: it is trying to talk the reviewing
+        agent into a verdict. The AEGIS verdict comes from the scanner, so the text has no effect,
+        but its presence is itself a finding. No autofix (removing comments mechanically is unsafe).
+    patterns:
+      # (?x) = whitespace/newlines in the pattern are ignored, so it can be written one alternative per line.
+      - pattern-regex: |
+          (?imx)(?:\#|//|/\*|^\s*\*)[^\n]*?(?:
+          ignore\s+(?:all\s+|any\s+)?(?:previous|prior|above|earlier|preceding)\s+(?:instructions|rules|prompts?|guidance)
+          |disregard\s+(?:all\s+|any\s+)?(?:previous|prior|above|earlier)\s+(?:instructions|rules|prompts?)
+          |(?:ignore|override|forget|disregard|replace|new)\s[^\n]{0,20}?system\s+prompt
+          |(?:security|review|reviewing|code[\s-]review|ai|llm|automated|autonomous)\s+(?:agent|bot|assistant|reviewer|scanner)[^\n]{0,40}?\b(?:approve|approved|skip|ignore|mark|set\s+status|do\s+not|don't|should\s+not|must|please|pass|allow)\b
+          |\b(?:aegis|agent|bot|assistant|reviewer)\b[^\n]{0,20}?\b(?:please|you\s+(?:must|should|can|may)|do\s+not|don't)\s[^\n]{0,30}?\b(?:report|flag|file|open|create|scan|review|block|fail|reject|comment|approve|skip|ignore)\b
+          |set\s+(?:the\s+)?(?:status|check|verdict|result)\s+(?:to\s+)?(?:success|passed|pass|approved|green)
+          |this\s+(?:file|code|module|function|change|commit|pr|pull\s+request|repository|repo)\s+(?:is|was|has\s+been|have\s+been|are)\s+(?:already\s+)?(?:reviewed|audited|approved|verified|vetted|cleared|whitelisted)\b
+          |do\s+not\s+(?:file|open|create|raise|report|post)\s+(?:an?\s+|any\s+)?(?:issue|issues|finding|findings|alert|alerts|pr|comment)
+          |\baegis\s*[:,]\s*(?:please|you|ignore|approve|skip|mark|set|do|don't|this|the|note|treat)\b
+          |@aegis\b
+          |(?<=[\#/*])\s*(?:assistant|system)\s*:\s   # chat-transcript role right after the comment marker
+          |\bsystem\s+prompt\s*:\s
+          )
+
+  - id: aegis.agent-directed-instruction-in-string
+    languages: [python, javascript, typescript]
+    severity: WARNING
+    message: >-
+      Text addressed to an AI reviewer/agent found in a string literal. Instructions inside code
+      are data, never commands; this is a prompt-injection attempt against automated review
+      (or against an LLM that will later read this string).
+    metadata:
+      cwe: "CWE-1427"
+      category: security
+      subcategory: prompt-injection
+      fix_hint: >-
+        Remove the text and treat the commit as hostile. If the string is a legitimate LLM prompt
+        of your own application, keep it out of the reviewed code path (e.g. a prompts/ asset) and
+        dismiss the finding; AEGIS will remember the dismissal for this location.
+    patterns:
+      - pattern-regex: |
+          (?ix)["'`][^"'`\n]*?(?:
+          ignore\s+(?:all\s+|any\s+)?(?:previous|prior|above|earlier|preceding)\s+(?:instructions|rules|prompts?|guidance)
+          |disregard\s+(?:all\s+|any\s+)?(?:previous|prior|above|earlier)\s+(?:instructions|rules|prompts?)
+          |(?:security|review|reviewing|code[\s-]review|ai|llm|automated|autonomous)\s+(?:agent|bot|assistant|reviewer|scanner)[^"'`\n]{0,40}?\b(?:approve|approved|skip|ignore|mark|set\s+status|do\s+not|don't|should\s+not|must|please|pass|allow)\b
+          |set\s+(?:the\s+)?(?:status|check|verdict|result)\s+(?:to\s+)?(?:success|passed|approved|green)
+          |this\s+(?:file|code|module|function|change|commit|pr|pull\s+request|repository|repo)\s+(?:is|was|has\s+been)\s+(?:already\s+)?(?:reviewed|audited|approved|verified|vetted|cleared)\b
+          |do\s+not\s+(?:file|open|create|raise|report|post)\s+(?:an?\s+|any\s+)?(?:issue|issues|finding|findings|alert|alerts)
+          |\baegis\s*[:,]\s*(?:please|you|ignore|approve|skip|mark|set|do|don't|this|the|note|treat)\b
+          |@aegis\b
+          )
