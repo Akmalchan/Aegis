@@ -1,7 +1,7 @@
-# AEGIS sentinel — fleet manifest consumed by fleet/deploy.sh (stream A2).
-# Not read by the Guild CLI for TypeScript agents (the CLI's own manifest is guild.json, gitignored, written
-# by `guild agent init`). deploy.sh substitutes __AGENT_NAME__ / __OWNER__ here and in agent.ts, then runs
-# `guild agent save --publish` and creates the triggers listed under `triggers`.
+# AEGIS sentinel fleet manifest. Read ONLY by fleet/deploy.sh (placeholder substitution + trigger list).
+# NOT a Guild manifest: for GUILD_TYPESCRIPT agents the CLI reads guild.json (written by `guild agent init`,
+# gitignored); guild.yaml is the manifest of GUILD_NATIVE / OpenClaw / LangGraph agents, so this file was
+# renamed from guild.yaml to keep `guild agent save` from treating it as one.
 name: __AGENT_NAME__
 owner: __OWNER__
 type: GUILD_TYPESCRIPT
@@ -13,9 +13,7 @@ description: >-
   aegis-scanner integration and autonomously sets the commit status, files Issues with fixes,
   opens fix PRs, and closes resolved Issues.
 
-llm_preferences:
-  - provider: openai
-  - provider: anthropic
+# llm_preferences: none (strict in SDK 0.7.8, workspace default is used)
 mode: one-shot
 use_workspace_agents: false
 
@@ -25,7 +23,7 @@ integrations:
     export: gitHubTools
     tools:
       - github_repos_get_content
-      - github_repos_create_commit_status
+      - github_repos_create_commit_comment
       - github_repos_list_pull_requests_associated_with_commit
       - github_issues_list_for_repo
       - github_issues_create
@@ -33,11 +31,10 @@ integrations:
       - github_issues_update
       - github_pulls_create_review
       - github_pulls_create
-      - github_git_get_ref
       - github_git_create_ref
       - github_repos_create_or_update_file_contents
-  __OWNER__~aegis-scanner:
-    package: "@guildai-services/__OWNER__~aegis-scanner"
+  __SCANNER_INTEGRATION__:
+    package: "@guildai-services/__SCANNER_INTEGRATION__"
     export: AegisScannerTools
     spec: ../../openapi.yaml
     auth: api-key            # header X-AEGIS-Key, connected with `guild integration connect aegis-scanner --owner __OWNER__ --token ...`

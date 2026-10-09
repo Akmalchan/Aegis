@@ -1,5 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "include": ["agent.ts", "scannerToolsFallback.ts", "offline-types/**/*.d.ts"],
-  "exclude": ["node_modules", "dist"]
-}
