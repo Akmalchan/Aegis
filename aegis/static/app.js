@@ -150,7 +150,6 @@
     return getJSON("/api/stats").then(function (s) {
       countTo("kAgents", s.agents, fmtInt);
       countTo("kRepos", s.repos, fmtInt);
-      countTo("kFindings", s.findings, fmtInt);
       $("howFindings").textContent = fmtK(s.findings);
       setStatus(true, s.ch ? "Fleet online" : "Online");
     }).catch(function () { setStatus(false, "Offline"); });
@@ -162,6 +161,7 @@
       var p50 = n ? rows.reduce(function (s, a) { return s + a.p50_ms * a.scans; }, 0) / n : 0;
       $("kScan").textContent = p50 ? fmtMs(p50) : "–";
       var svg = $("latency"), sig = JSON.stringify(rows);
+      if (!svg) return;
       if (svg._sig === sig) return;
       svg._sig = sig; svg.innerHTML = "";
       if (!rows.length) { svgEl("text", { x: 0, y: 20 }, svg).textContent = "No agent scans yet"; return; }
@@ -224,10 +224,15 @@
         (a.repos || []).forEach(function (r) {
           n++;
           var g = nodes.repos[r.repo];
-          if (g) g._cnt.innerHTML = '<tspan class="o">' + fmtInt(r.open) + ' open</tspan>   <tspan class="f">' + fmtInt(r.resolved) + " fixed</tspan>";
+          if (g) g._cnt.innerHTML = r.open || r.resolved
+            ? (r.open ? '<tspan class="o">' + fmtInt(r.open) + " open</tspan>" : "") + (r.open && r.resolved ? "   " : "") + (r.resolved ? '<tspan class="f">' + fmtInt(r.resolved) + " fixed</tspan>" : "")
+            : '<tspan class="z">no issues</tspan>';
         });
       });
       $("fleetHint").textContent = agents.length + " agents · " + n + " repos";
+      var fixed = 0;
+      agents.forEach(function (a) { (a.repos || []).forEach(function (r) { fixed += r.resolved || 0; }); });
+      countTo("kFixed", fixed, fmtInt);
     }).catch(function () {});
   }
   function isHot(e) { return (e.kind === "scan" && e.verdict === "unsafe") || e.kind === "issue_opened" || e.kind === "denied"; }
@@ -276,7 +281,7 @@
       var g = later.some(function (e) { return e.kind === "status_set" && e.state === "success" && e.ts > a.ts; });
       return g && later.some(function (e) { return e.kind === "scan" && e !== a && e.verdict === "safe"; });
     }
-    var liveRun = false;
+    var liveRun = false;  // a newer run still in flight: show the last complete one, flag the live one
     if (anchor.verdict === "unsafe" && !runMerged(anchor) && now - anchor.ts > 180) {
       var done8 = scans.find(function (e) { return e.verdict === "unsafe" && e.ts < anchor.ts && runMerged(e); });
       if (done8) { anchor = done8; liveRun = true; }
@@ -293,7 +298,7 @@
     var pr = first("pr_opened"), rescan = evs.filter(function (e) { return e.kind === "scan" && e !== anchor; }).pop();
     var green = last("status_set", function (e) { return e.state === "success" && e.ts > anchor.ts; });
     var unsafe = anchor.verdict === "unsafe", steps = [];
-    steps.push({ label: "Push", ev: wake || anchor, cls: "done", link: sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "" });
+    steps.push({ label: "Push", ev: wake || anchor, cls: "done", meta: sha ? "" : "received", link: sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "" });
     steps.push({ label: "Semgrep scan", ev: anchor, cls: "done " + (unsafe ? "bad" : ""), meta: (anchor.n_findings || 0) + " finding" + (anchor.n_findings === 1 ? "" : "s") + " · " + fmtMs(anchor.ms || anchor.total_ms) });
     if (!unsafe) {
       steps.push({ label: "Validated", cls: "done", ev: anchor, meta: "clean" });
@@ -303,7 +308,7 @@
       steps.push({ label: "Validated", cls: validated ? "done" : "active", ev: validated, meta: dismissed && !issue ? "false positive" : validated ? "triage confirmed" : "triage running…" });
       var fx = fix || fixFail;
       steps.push({ label: "Fix", cls: fix ? "done" : fixFail ? "done bad" : validated ? "active" : "", ev: fx,
-        meta: fx ? [fx.model === "semgrep-rule-fix" ? "rule autofix" : fx.model || "llm", fixFail && !fix ? "failed" : ""].filter(Boolean).join(" · ") : validated ? "writing patch…" : "–" });
+        meta: fx ? [fx.model === "semgrep-rule-fix" ? "Semgrep autofix" : "AI patch", fixFail && !fix ? "failed" : ""].filter(Boolean).join(" · ") : validated ? "writing patch…" : "–" });
       var vr = ver || verFail;
       steps.push({ label: "Re-check", cls: ver ? "done" : verFail ? "done bad" : fx ? "active" : "", ev: vr, meta: vr ? (ver ? "verified" : "rejected") : fx ? "verifying…" : "–" });
       steps.push({ label: "Issue", cls: issue ? "done" + (issueClosed ? "" : " bad") : "", ev: issue, meta: issue ? (issueClosed ? "closed" : "open") : "–", link: issue ? link(ghUrl(repo, "issue", issue.ref), "#" + issue.ref) : "" });
@@ -318,41 +323,59 @@
     var lastDone = -1;
     steps.forEach(function (st, i) { if (/done/.test(st.cls)) lastDone = i; });
     setHTML($("pipeline"), steps.map(function (st, i) {
-      var cls = st.cls + (i === lastDone ? " last" : "");
-      return '<li class="' + cls + '"><span class="n">' + (i + 1) + "</span><span>" + esc(st.label) + ' <span class="m">' + esc(st.meta || "") + (st.link ? " " + st.link : "") +
-        '</span></span><span class="m">' + (st.ev ? "+" + fmtDur(Math.max(0, st.ev.ts - t0)) : "") + "</span></li>";
+      var cls = /done/.test(st.cls) ? "done" + (/bad/.test(st.cls) ? " bad" : "") : (i === lastDone + 1 && /active/.test(st.cls)) ? "cur" : "";
+      return '<li class="' + cls + '"><span class="n">' + String(i + 1).padStart(2, "0") + "</span><b>" + esc(st.label) + "</b><small>" + (st.meta ? esc(st.meta) + (st.link ? " · " : "") : st.link ? "" : "–") +
+        (st.link || "") + "</small>" + (st.ev ? '<span class="t">+' + fmtDur(Math.max(0, st.ev.ts - t0)) + "</span>" : "") + "</li>";
     }).join(""));
     var done = issueClosed || ver, end = evs[evs.length - 1].ts;
+    var curStep = steps[Math.min(steps.length - 1, lastDone + (lastDone + 1 < steps.length && /active/.test(steps[lastDone + 1].cls) ? 1 : 0))];
+    function row(k, v, cls) { return "<div" + (cls ? ' class="' + cls + '"' : "") + "><dt>" + k + "</dt><dd>" + v + "</dd></div>"; }
+    setHTML($("incFacts"),
+      row("Agent", esc(agentName(anchor.agent))) +
+      row("Commit", sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "–") +
+      row("Findings", String(anchor.n_findings || 0), unsafe ? "bad" : "good") +
+      row("Scan time", fmtMs(anchor.ms || anchor.total_ms)) +
+      row("Now at", esc(curStep.label) + (curStep.meta && curStep.meta !== "–" ? ' <span class="mut">· ' + esc(curStep.meta) + "</span>" : ""), /bad/.test(curStep.cls) ? "bad" : ""));
     setHTML($("incTotal"), done ? "<span>Detect → fix → verify</span><b>" + fmtDur(end - t0) + "</b>"
-      : unsafe ? "<span>Since push</span><b>" + fmtDur(now - t0) + "</b>" : "<span>Clean push, scanned in</span><b>" + fmtMs(anchor.total_ms) + "</b>");
+      : unsafe ? "<span>Since push</span><b>" + fmtDur(now - t0) + "</b>" : "<span>Clean push</span><b>✓</b>");
   }
 
   /* ================= Guild agents + handoff guard (port of Andrii's control room) ================= */
   var ROLE_AGENTS = { "aegis-triage": "validates findings", "aegis-remediator": "writes the fix", "aegis-verifier": "proves the fix", "aegis-warden": "fleet cron · insights",
     "aegis-rulesmith": "learns new rules", "aegis-reporter": "writes the report", "aegis-onboarder": "adds repos" };
   var fleetAgents = {}, knownSessions = null;
+  function activityOf(name) {
+    var evs = (lastEvents || []).filter(function (e) { return e.agent === name; });
+    return { n: evs.length, last: evs[0], spark: evs.slice(0, 14).reverse() };
+  }
   function paintCards(d) {
     var byAgent = {};
     (d.agents || []).forEach(function (a) { byAgent[a.agent] = a; });
     var names = Object.keys(fleetAgents).concat(Object.keys(ROLE_AGENTS));
-    Object.keys(byAgent).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
-    var html = "", lastGroup = "";
-    names.forEach(function (name) {
-      var group = fleetAgents[name] ? "Sentinels · one per 3 repos" : "Role agents";
-      if (group !== lastGroup) { html += '<div class="grp">' + esc(group) + "</div>"; lastGroup = group; }
-      var a = byAgent[name], cur = a && (a.current || a.latest), st = a ? a.state : "never";
-      var cls = st === "working" ? "working" : (cur && cur.status === "failed") ? "failed" : a ? "done" : "never";
-      var sub = fleetAgents[name] ? fleetAgents[name].map(short).join(", ") : (ROLE_AGENTS[name] || "");
-      var status = st === "working" ? "working" : cur ? (cur.status === "failed" ? "failed " : "") + ago(cur.created_at) : "idle";
-      var tool = "";
-      if (cur) {
-        var t = cur.last_tool_call;
-        tool = (t ? esc(t.name) : esc(cur.note || cur.event || "")) + (cur.repo ? " · " + esc(short(cur.repo)) : "") + link(cur.session_url, "session ↗");
+    Object.keys(byAgent).forEach(function (n) { if (names.indexOf(n) < 0 && /^aegis-/.test(n)) names.push(n); });
+    var rows = names.map(function (name) {
+      var a = byAgent[name], cur = a && (a.current || a.latest), act = activityOf(name);
+      var working = a && a.state === "working", recent = act.last && Date.now() / 1000 - act.last.ts < 600;
+      var state = working ? "working" : recent ? "active" : act.last || cur ? "idle" : "standby";
+      var lastTs = Math.max(act.last ? act.last.ts : 0, cur ? cur.created_at : 0);
+      var key = String(name).replace(/^aegis-/, ""), init = /sentinel-(\d+)/.test(key) ? "S" + key.slice(-1) : key.slice(0, 2).toUpperCase();
+      var role = fleetAgents[name] ? "guards " + fleetAgents[name].length + " repos" : (ROLE_AGENTS[name] || "");
+      var sq = "";
+      for (var k = 0; k < 12; k++) {
+        var e2 = act.spark[act.spark.length - 12 + k];
+        sq += "<i" + (e2 ? ' class="' + (isHot(e2) ? "bad" : isGood(e2) ? "good" : "on") + '"' : "") + "></i>";
       }
-      html += '<div class="ag ' + cls + '"><div class="top"><span class="led"></span><b>' + esc(agentName(name).replace(/^aegis-/, "")) + '</b><span class="st">' + esc(status) +
-        "</span></div>" + (sub ? "<small>" + esc(sub) + "</small>" : "") + (tool ? '<div class="tool">' + tool + "</div>" : "") + "</div>";
+      var last = cur && cur.last_tool_call ? cur.last_tool_call.name : act.last ? (LABEL[act.last.kind] || String(act.last.kind).replace(/_/g, " ")) : "";
+      return { n: act.n, html: '<li class="ar ' + state + '"' + (fleetAgents[name] ? ' title="' + esc(fleetAgents[name].join(", ")) + '"' : "") + '><span class="av2">' + esc(init) +
+        '</span><span class="nm"><b>' + esc(agentName(name).replace(/^aegis-/, "")) + "</b><small>" + esc(role) + '</small></span><span class="pill ' + state + '">' + state +
+        '</span><span class="sq">' + sq + '</span><span class="ct"><b>' + act.n + "</b> actions</span>" +
+        '<span class="la">' + (last ? esc(last.charAt(0).toUpperCase() + last.slice(1)) + (lastTs ? " · " + ago(lastTs) : "") : "–") + "</span></li>", sentinel: !!fleetAgents[name] };
     });
-    setHTML($("cards"), html || '<div class="empty">No agents</div>');
+    var html = '<li class="ar-h"><span></span><span>Agent</span><span>State</span><span>Last 12 actions</span><span>Volume</span><span>Last action</span></li>' +
+      rows.filter(function (r) { return r.sentinel; }).map(function (r) { return r.html; }).join("") +
+      '<li class="ar-sep">Role agents</li>' +
+      rows.filter(function (r) { return !r.sentinel; }).sort(function (x, y) { return y.n - x.n; }).map(function (r) { return r.html; }).join("");
+    setHTML($("cards"), '<ul class="roster">' + html + "</ul>");
   }
   function loadGuild() {
     return getJSON("/api/guild").then(function (d) {
@@ -360,6 +383,22 @@
       var sessions = d.sessions || [], working = sessions.filter(function (s) { return s.status === "working"; }).length;
       $("guildHint").textContent = "Guild · live · " + working + " awake · " + sessions.length + " sessions";
       paintCards(d);
+      var added = false;
+      sessions.forEach(function (s) {
+        var note = String(s.note || "").trim();
+        if (!note || note.length < 4) return;
+        var key = s.id + "|" + note;
+        if (sayKeys[key]) return;
+        sayKeys[key] = 1;
+        guildSay.push({ kind: "say", agent: s.agent, repo: s.repo, note: note, ts: s.last_activity_at || s.created_at || Date.now() / 1000, _new: knownSessions != null });
+        added = true;
+      });
+      if (added) {
+        guildSay.sort(function (a, b) { return a.ts - b.ts; });
+        guildSay = guildSay.slice(-25);
+        renderChat(lastEvents, []);
+        guildSay.forEach(function (m) { m._new = false; });
+      }
       if (knownSessions) {
         var fresh = sessions.filter(function (s) { return !knownSessions[s.id] && Date.now() / 1000 - s.created_at < 120; });
         if (fresh.length) { pulse(LIME); toast(false, "Agent woke up", agentName(fresh[0].agent) + (fresh[0].repo ? " · " + short(fresh[0].repo) : "")); }
@@ -372,7 +411,7 @@
     return getJSON("/api/handoffs").then(function (d) {
       var rows = (d.handoffs || []).filter(function (h) {
         var r = String(h.repo || ""), ref = String(h.ref || "");
-        return !/^(local:|\/private\/)/.test(r) && r !== "selftest/repo" && ref.indexOf("t->t:") !== 0;
+        return String(h.agent || "").length > 2 && !/test/.test(h.agent || "") && !/^(local:|\/private\/)/.test(r) && r !== "selftest/repo" && ref.indexOf("t->t:") !== 0;
       }).slice(0, 7);
       $("hoHint").textContent = rows.length ? rows.length + " handoffs checked by Semgrep" : "Agent → agent handoffs, checked by Semgrep";
       setHTML($("handoffs"), rows.length ? rows.map(function (h) {
@@ -389,18 +428,19 @@
   /* ================= feed + reactions ================= */
   var lastTs = null, toastTimer = null;
   function kindOf(e) {
+    if (e.kind === "say") return { c: "say", l: "says" };
     if (e.kind === "scan") return { c: e.verdict === "unsafe" ? "bad" : "good", l: e.verdict === "unsafe" ? "Unsafe" : "Safe" };
     var raw = LABEL[e.kind] || String(e.kind).replace(/_/g, " ");
     var l = raw.charAt(0).toUpperCase() + raw.slice(1).replace(" opened", "");
     var bad = isHot(e) || /fail|denied|reject/.test(e.kind);
     return { c: bad ? "bad" : isGood(e) ? "good" : "act", l: l };
   }
-  function toast(bad, k, t) {
+  function toast(bad, k, t, ms) {
     var n = $("toast");
     n.className = "toast on" + (bad ? " bad" : "");
     $("toastK").textContent = k; $("toastT").textContent = t;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { n.className = "toast" + (bad ? " bad" : ""); }, 3800);
+    toastTimer = setTimeout(function () { n.className = "toast" + (bad ? " bad" : ""); }, ms || 3800);
   }
   function react(fresh) {
     var top = null;
@@ -422,6 +462,7 @@
   function chatText(e) {
     var r = "<b>" + esc(short(e.repo)) + "</b>", ref = /^\d+$/.test(e.ref || "") ? " #" + esc(e.ref) : "";
     switch (e.kind) {
+      case "say": return '<span class="q">' + esc(e.note) + "</span>" + (e.repo ? ' <span class="on">on ' + r + "</span>" : "");
       case "scan": return e.verdict === "unsafe"
         ? "Push to " + r + " is unsafe. " + e.n_findings + " finding" + (e.n_findings === 1 ? "" : "s") + " in " + fmtMs(e.total_ms) + "."
         : "Scanned " + r + ". Clean in " + fmtMs(e.total_ms) + ".";
@@ -437,14 +478,17 @@
       default: var k = String(e.kind).replace(/_/g, " "); return esc(k.charAt(0).toUpperCase() + k.slice(1)) + " on " + r + ref + ".";
     }
   }
+  var guildSay = [], sayKeys = {}, lastEvents = [];
   function renderChat(events, fresh) {
-    var box = $("feed"), list = events.slice(0, 40).reverse();
+    lastEvents = events;
+    var box = $("feed");
+    var list = events.slice(0, 40).concat(guildSay).sort(function (a, b) { return a.ts - b.ts; }).slice(-50);
     var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
     var changed = setHTML(box, list.map(function (e) {
       var who = agentName(e.agent).replace("Sentinel ", "Sentinel "), key = String(e.agent || "").replace(/^aegis-/, "");
       var init = /sentinel-(\d+)/.test(key) ? "S" + key.slice(-1) : key.charAt(0).toUpperCase();
       var k = kindOf(e);
-      return '<li class="msg' + (fresh.indexOf(e) >= 0 ? " new" : "") + '"><span class="av" style="background:' + (AV[key] || "#999") + '">' + esc(init) +
+      return '<li class="msg' + (e.kind === "say" ? " say" : "") + (fresh.indexOf(e) >= 0 || e._new ? " new" : "") + '"><span class="av" style="background:' + (AV[key] || "#999") + '">' + esc(init) +
         '</span><div class="mb"><div class="mh"><b>' + esc(who) + '</b><span class="tag ' + k.c + '">' + esc(k.l) + '</span><time>' +
         clock(e.ts) + '</time></div><p>' + chatText(e) + "</p></div></li>";
     }).join("") || '<li class="empty">Waiting for the first push</li>');
@@ -471,19 +515,23 @@
   }
 
   /* ================= alerts ================= */
+  var alertSeen = null;
   function loadAlerts() {
     return getJSON("/api/alerts?hours=48").then(function (d) {
-      var seen = {}, a = (d.alerts || []).filter(function (x) {
-        var k = x.type + "|" + x.repo + "|" + (x.type === "injection" ? x.path + ":" + x.line : x.agent);
-        if (seen[k] || /^(local:|\/private\/)/.test(String(x.repo || "")) || x.repo === "selftest/repo") return false;
-        seen[k] = 1; return true;
+      var list = d.alerts || [], first = alertSeen == null;
+      alertSeen = alertSeen || {};
+      var fresh = list.filter(function (x) {
+        var k = x.type + "|" + x.repo + "|" + (x.path || "") + "|" + (x.line || "");
+        if (alertSeen[k]) return false;
+        alertSeen[k] = 1; return true;
       });
-      $("alerts").hidden = !a.length;
-      setHTML($("alerts"), a.slice(0, 2).map(function (x) {
-        return x.type === "injection"
-          ? '<div class="alert"><span class="tag">Attack caught</span><span class="msg"><span>' + esc(short(x.repo)) + " told the agent to approve itself. Flagged.</span><code>" + esc(x.path) + ":" + esc(x.line) + "</code></span></div>"
-          : '<div class="alert"><span class="tag">Blocked</span><span class="msg">' + esc(agentName(x.agent)) + " tried " + esc(short(x.repo)) + ". Outside its fence.</span></div>";
-      }).join(""));
+      // on page load only announce an attack from the last 30 min; after that, every new one
+      var show = first ? fresh.filter(function (x) { return Date.now() / 1000 - (x.ts || 0) < 1800; }).slice(0, 1) : fresh.slice(0, 1);
+      show.forEach(function (x) {
+        if (x.type === "injection") toast(true, "Attack caught", short(x.repo) + " told the agent to approve itself · ignored", 7000);
+        else toast(true, "Blocked", agentName(x.agent) + " tried " + short(x.repo) + " · outside its fence", 7000);
+        pulse(RED);
+      });
     }).catch(function () {});
   }
 
@@ -535,31 +583,8 @@
     }).catch(function () {});
   }
 
-  /* ================= fix funnel + agent watch (ClickHouse MVs) ================= */
-  var STAGE = { detected: "Detected", issue_opened: "Issue opened", pr_opened: "Fix PR opened", verified: "Re-scan verified", issue_closed: "Issue closed" };
-  function loadFunnel() {
-    return getJSON("/api/funnel?hours=720").then(function (d) {
-      var st = d.stages || [], max = st.length ? st[0].n || 1 : 1;
-      $("funnelMs").textContent = d.ch ? "· " + fmtMs(d.query_ms) : "";
-      setHTML($("funnel"), st.map(function (s) {
-        var t = s.median_s_from_prev == null ? "" : " · +" + fmtDur(s.median_s_from_prev);
-        return '<li><div class="row"><span>' + esc(STAGE[s.stage] || s.stage) + "</span><b>" + fmtInt(s.n) + esc(t) +
-          '</b></div><div class="bar"><i style="width:' + Math.max(2, 100 * s.n / max).toFixed(1) + '%"></i></div></li>';
-      }).join("") || '<li class="empty">No live findings yet</li>');
-    }).catch(function () {});
-  }
-  function loadWatch() {
-    return getJSON("/api/anomalies?minutes=60").then(function (d) {
-      var a = d.anomalies || [];
-      $("watchMs").textContent = d.ch ? "· " + fmtMs(d.query_ms) : "";
-      setHTML($("watch"), a.slice(0, 6).map(function (x) {
-        return "<li><span>" + esc(agentName(x.agent)) + "<small>" + esc(x.kind) + " · " + esc(x.reason) + '</small></span><b class="x">' + fmtInt(x.recent) + "/min</b></li>";
-      }).join("") || '<li class="empty">' + (d.ch ? "All agents nominal" : "ClickHouse offline") + "</li>");
-    }).catch(function () {});
-  }
-
   /* ================= posture area chart ================= */
-  var tl = [], tlMs = 0;
+  var tl = [];
   function drawTimeline() {
     var repo = $("repoSel").value, byM = {};
     tl.forEach(function (r) {
@@ -604,7 +629,7 @@
     box.innerHTML = svg;
     var total = months.reduce(function (s, k) { return s + (byM[k] ? byM[k].ERROR + byM[k].WARNING + byM[k].INFO : 0); }, 0);
     $("tlBig").textContent = fmtInt(total);
-    $("tlNote").textContent = keys[0].slice(0, 4) + " – " + end.slice(0, 4) + " · by commit date" + (tlMs ? " · " + fmtMs(tlMs) : "");
+    $("tlNote").textContent = keys[0].slice(0, 4) + " – " + end.slice(0, 4) + " · by commit date";
     box.onmousemove = function (ev) {
       var r = box.getBoundingClientRect(), i = Math.round((ev.clientX - r.left) / r.width * (months.length - 1));
       i = Math.max(0, Math.min(months.length - 1, i));
@@ -617,7 +642,6 @@
   }
   function loadTimeline() {
     return getJSON("/api/timeline?weeks=1100&bucket=month").then(function (d) {
-      tlMs = d.ms || 0;
       var sig = JSON.stringify(d.rows || []);
       if (sig === loadTimeline._sig) return;
       loadTimeline._sig = sig;
@@ -630,38 +654,36 @@
       drawTimeline();
     }).catch(function () {});
   }
-  $("repoSel").addEventListener("change", drawTimeline);
+  if ($("repoSel")) $("repoSel").addEventListener("change", drawTimeline);
 
   /* ================= patrol terminal ================= */
   var termQueue = [], pSeq = 0, term = $("term");
   function clock(ts) { return new Date(ts * 1000).toLocaleTimeString("en-US", { hour12: false }); }
   var hp = $("hpList");
   function heroLine(l) {
-    var html;
-    if (l.level === "hit" || l.level === "warn") {
-      html = '<span class="d ' + l.level + '"></span><span class="t">' + esc(String(l.rule || "").replace(/^js-/, "js · ")) +
-        "<small>" + esc(l.path || "") + ":" + esc(l.line || "") + '</small></span><span class="r">' + esc(l.repo || "") + "</span>";
-    } else if (l.level === "ok") {
-      html = '<span class="d ok"></span><span class="t">Clean</span><span class="r">' + esc(l.repo || "") + "</span>";
-    } else if (l.level === "fleet") {
-      html = '<span class="d fleet"></span><span class="t">' + esc(l.text.replace(/^fleet\s+/, "")) + '</span><span class="r">fleet</span>';
-    } else return;
-    var e = hp.querySelector(".hp-empty"); if (e) e.remove();
+    var mk = { hit: "✗", warn: "✗", ok: "✓", found: "›", fleet: "●", info: "·", muted: "·" }[l.level] || "·", tx;
+    if (l.level === "hit" || l.level === "warn") tx = "<b>" + esc(l.rule || "") + "</b><small>" + esc(l.path || "") + ":" + esc(l.line || "") + "</small>";
+    else if (l.level === "fleet") tx = esc(l.text.replace(/^fleet\s+/, ""));
+    else tx = esc(String(l.text || "").replace(/\s{2,}/g, " ").replace(/\s*py-repo-\w+|\s*js-repo-\w+/, ""));
+    var rp = l.repo || (l.level === "fleet" ? "fleet" : "");
+    var e = hp.querySelector(".ht-dim"); if (e) e.remove();
     var li = document.createElement("li");
-    li.innerHTML = html;
-    hp.insertBefore(li, hp.firstChild);
-    while (hp.children.length > 6) hp.removeChild(hp.lastChild);
+    li.className = "x-" + l.level;
+    li.innerHTML = '<span class="ts">' + clock(l.ts) + '</span><span class="mk">' + mk + '</span><span class="tx">' + tx + '</span><span class="rp">' + esc(rp) + "</span>";
+    hp.appendChild(li);
+    while (hp.children.length > 11) hp.removeChild(hp.firstChild);
   }
   function pushLine(l) {
     heroLine(l);
     var li = document.createElement("li");
-    li.className = "l-" + l.level;
+    li.className = "l-" + l.level + " in";
     li.innerHTML = '<span class="ts">' + clock(l.ts) + "</span><span>" + esc(l.text) + "</span>";
     var prev = term.querySelector(".cursor");
     if (prev) prev.classList.remove("cursor");
     li.lastChild.classList.add("cursor");
     term.appendChild(li);
-    while (term.children.length > 26) term.removeChild(term.firstChild);
+    while (term.children.length > 20) term.removeChild(term.firstChild);
+    setTimeout(function () { li.classList.remove("in"); }, 320);
   }
   setInterval(function () {  // drip lines out so the log reads like a live stream, not page refreshes
     if (!termQueue.length) return;
@@ -674,29 +696,48 @@
       if (!pSeq && lines.length > 22) lines = lines.slice(-22);
       lines.forEach(function (l) { pSeq = Math.max(pSeq, l.seq); termQueue.push(l); });
       var st = d.stats || {};
-      $("patrolPill").textContent = d.on ? "Live" : "Off";
-      if (st.started) $("patrolUp").textContent = "aegis patrol · up " + fmtDur(Date.now() / 1000 - st.started);
+      $("patrolPill").lastChild.textContent = d.on ? "LIVE" : "OFF";
+      if (st.started) $("patrolUp").textContent = "aegis patrol · up " + fmtDur(Date.now() / 1000 - st.started) + " · fresh public repos";
       countTo("pRepos", st.repos || 0, fmtInt);
       countTo("pFind", st.findings || 0, fmtInt);
       countTo("pSecrets", st.secrets || 0, fmtInt);
       countTo("hpRepos", st.repos || 0, fmtInt);
       countTo("hpFind", st.findings || 0, fmtInt);
       countTo("hpSec", st.secrets || 0, fmtInt);
-      if (st.started) $("hpSub").textContent = "Live · up " + fmtDur(Date.now() / 1000 - st.started);
+      if (st.started) $("hpSub").textContent = "· up " + fmtDur(Date.now() / 1000 - st.started);
       $("pRate").textContent = st.repos ? Math.round(100 * (st.dirty || 0) / st.repos) + "%" : "0%";
-      var rules = st.rules || [], max = rules.length ? rules[0][1] : 1;
-      setHTML($("pRules"), rules.map(function (r) {
-        return '<li><div class="row"><span>' + esc(ruleShort(r[0])) + "</span><b>" + fmtInt(r[1]) + '</b></div><div class="bar"><i style="width:' +
-          Math.max(3, 100 * r[1] / max).toFixed(1) + '%"></i></div></li>';
-      }).join("") || '<li class="empty">Warming up</li>');
+      var rules = (st.rules || []).slice(0, 6), max = rules.length ? rules[0][1] : 1, rh = "";
+      for (var ri = 0; ri < 6; ri++) {
+        var r = rules[ri];
+        rh += r ? '<li><div class="row"><span>' + esc(ruleShort(r[0])) + "</span><b>" + fmtInt(r[1]) + '</b></div><div class="bar"><i style="width:' +
+          Math.max(3, 100 * r[1] / max).toFixed(1) + '%"></i></div></li>'
+          : '<li><div class="row"><span style="color:var(--ink-4)">—</span><b></b></div><div class="bar"></div></li>';
+      }
+      setHTML($("pRules"), rh);
     }).catch(function () {});
   }
 
-  /* ================= projector mode + sponsor strip ================= */
-  if (/[?&]projector\b/.test(location.search) || /projector/.test(location.hash)) document.body.classList.add("projector");
-  document.addEventListener("keydown", function (e) {
-    if ((e.key === "p" || e.key === "P") && !/INPUT|SELECT|TEXTAREA/.test((e.target || {}).tagName || "")) document.body.classList.toggle("projector");
+  /* ================= projector mode: bigger, only the live story (button, P key, ?projector, auto on huge screens) ================= */
+  function setProjector(on) {
+    document.body.classList.toggle("projector", on);
+    $("projBtn").classList.toggle("on", on);
+    $("projBtn").setAttribute("aria-pressed", on ? "true" : "false");
+    try { localStorage.setItem("aegis.projector", on ? "1" : "0"); } catch (e) {}
+    if (tl.length && $("timeline")) drawTimeline();
+  }
+  (function () {
+    var want = /projector/.test(location.search), saved = null;
+    try { saved = localStorage.getItem("aegis.projector"); } catch (e) {}
+    if (!want && saved === "1") want = true;
+    if (!want && saved == null && window.innerWidth >= 1800) want = true;
+    setProjector(want);
+  })();
+  $("projBtn").addEventListener("click", function () { setProjector(!document.body.classList.contains("projector")); });
+  window.addEventListener("keydown", function (e) {
+    if ((e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !/input|select|textarea/i.test(e.target.tagName)) setProjector(!document.body.classList.contains("projector"));
   });
+
+  /* ================= sponsor strip ================= */
   function loadSponsors() {
     return getJSON("/api/stats").then(function (s) {
       if (s.findings) $("spCH").textContent = "ClickHouse — fleet memory · " + fmtK(s.findings) + " findings";
@@ -712,11 +753,6 @@
   every(loadAlerts, 5000);
   every(loadLatency, 10000);
   every(loadMttr, 10000);
-  every(loadBreakdown, 30000);
-  every(loadInsights, 15000);
-  every(loadTimeline, 60000);
-  every(loadFunnel, 15000);
-  every(loadWatch, 10000);
   every(loadPatrol, 1500);
   every(loadGuild, 4000);
   every(loadHandoffs, 5000);
