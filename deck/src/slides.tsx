@@ -13,6 +13,14 @@ const Foot = ({ left = "AEGIS · Cyberdefense Hackathon" }: { left?: string }) =
     <span className="badges">{SPONSORS.map((s) => <span key={s} className="badge">{s}</span>)}</span>
   </div>
 )
+type F = [ReactNode, ReactNode, string?]
+const Feats = ({ items }: { items: F[] }) => (
+  <div className="feats">
+    {items.map(([n, t, c], i) => (
+      <BlurFade key={i} delay={0.15 + i * 0.2} duration={0.45}><div className={`feat ${c ?? ""}`}><span className="n">{n}</span><span className="t">{t}</span></div></BlurFade>
+    ))}
+  </div>
+)
 const In = ({ d = 0, children }: { d?: number; children: ReactNode }) => <BlurFade delay={d} duration={0.5}>{children}</BlurFade>
 
 export const slides: Slide[] = [
@@ -110,6 +118,42 @@ db.py
     ),
     notes: "Eleven hosted agents: three sentinels own three repos each and call triage, remediator and verifier as sub-agents; warden and reporter run on cron, rulesmith and onboarder on Issues. Credential policies allow each sentinel only its own repos, and we have the session where a foreign-repo call was denied.",
   },
+  /* guild features */
+  {
+    el: (
+      <div className="slide">
+        <h1>Guild runs the whole security team, not one bot</h1>
+        <Feats items={[
+          [<NumberTicker value={11} />, "hosted agents, 3 sentinels × 3 repos"],
+          [<NumberTicker value={23} />, "triggers: 21 GitHub webhooks + 2 cron"],
+          ["3", "sub-agents as tools: triage, remediator, verifier"],
+          ["4", "roles: warden, reporter (cron), rulesmith, onboarder (Issues)"],
+          ["1", "custom integration: scanner as a Guild tool, key injected by proxy"],
+          ["deny", "least-privilege policies, foreign-repo call refused", "r"],
+        ]} />
+        <Foot />
+      </div>
+    ),
+    notes: "Everything runs as hosted Guild agents wired by webhooks and cron. The scanner is a Guild tool the agents call without ever holding its key, and credential policies refuse calls outside each sentinel's repos. Sentinel evals live in evals/.",
+  },
+  /* semgrep features */
+  {
+    el: (
+      <div className="slide">
+        <h1>Semgrep is the judge at every step</h1>
+        <Feats items={[
+          ["diff", "--baseline-commit: only what the push introduced"],
+          [<NumberTicker value={22} />, "custom rules, 5 with autofix, CWE-tagged"],
+          ["4", "rules for AI code: comment injection, LLM→exec, tool arg→shell, secret→prompt"],
+          ["trace", "--dataflow-traces quoted in every Issue"],
+          ["guard", "handoff guard + --validate/--test gate for learned rules"],
+          ["0", "ERROR in self-audit of AEGIS (15 → 4 findings) · SARIF out", "g"],
+        ]} />
+        <Foot />
+      </div>
+    ),
+    notes: "Semgrep scans only the diff, decides the verdict, and re-scans every patch, test and learned rule one agent hands to another. We also ran it on our own AI-written code and took ERROR findings to zero.",
+  },
   /* 6 · semgrep finding */
   {
     el: (
@@ -164,26 +208,23 @@ reaches the sink   app.py:28
     ),
     notes: "Three rule families for AI code: comments that instruct the reviewing agent, LLM output flowing into exec, and MCP tool arguments reaching a shell. Semgrep's own dataflow trace goes into the Issue, so the model explains a flow Semgrep proved.",
   },
-  /* 8 · clickhouse */
+  /* clickhouse */
   {
     el: (
       <div className="slide">
         <h1>ClickHouse memory changes the next verdict</h1>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.3fr", gap: 64, marginTop: 56, alignItems: "start" }}>
-          <div className="stat"><div className="num"><NumberTicker value={38739} /></div><div className="lbl">finding rows from git history</div></div>
-          <div className="stat"><div className="num"><NumberTicker value={2007} /></div><div className="lbl">commits, 2005 to 2026</div></div>
-          <In d={0.6}>
-            <pre className="artifact lg" style={{ marginTop: 12 }}>{`enrich(findings), before the verdict
-  seen_before       `}<span className="hl">25</span>{`
-  dismissed_before  false
-  priority          0–100`}</pre>
-          </In>
-        </div>
-        <In d={1.2}><p className="claim" style={{ marginTop: 72 }}>Dismissed once, silent everywhere. Highest priority gets fixed first.</p></In>
+        <Feats items={[
+          [<NumberTicker value={38739} />, "findings backfilled from git history"],
+          [<NumberTicker value={2007} />, "commits, 2005 to 2026"],
+          ["seen", "seen_before + dismissed_before, inside the verdict"],
+          ["0–100", "priority decides which finding gets fixed first"],
+          ["< 0.3", "rule precision: noisy rules auto-demoted to INFO"],
+          [<NumberTicker value={9} />, "repos per rule rollout · dashboard = ClickHouse queries"],
+        ]} />
         <Foot />
       </div>
     ),
-    notes: "Every scan, finding and action lands in ClickHouse, plus a Semgrep backfill over 20 repos' history. One query in the verdict path adds seen_before, dismissed_before and a priority, so a false positive dismissed once is never filed again.",
+    notes: "One query in the verdict path adds history to every finding, so a false positive dismissed once is never filed again. Precision per rule demotes noisy rules, and rollout runs a rule across all 9 fleet repos.",
   },
   /* 9 · openai */
   {
@@ -197,11 +238,34 @@ reaches the sink   app.py:28
 config · Semgrep rule fix · no LLM · 430 ms
 `}<span className="rej">{`-  ADMIN_API_KEY = "sk-live-9f3c…"`}</span>{`
 `}<span className="add">{`+  ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")`}</span></pre>
-        <In d={0.3}><p className="claim" style={{ marginTop: 40 }}>gpt-4.1 writes 1 line. The scanner splices it; everything else is byte-identical.</p></In>
+        <In d={0.3}><p className="claim" style={{ marginTop: 36 }}>gpt-4.1 writes 1 line. The scanner splices it; everything else is byte-identical.</p></In>
+        <div style={{ display: "flex", gap: 56, marginTop: 28 }}>
+          <In d={0.6}><div className="note pass"><span className="dot" />temperature 0</div></In>
+          <In d={0.9}><div className="note pass"><span className="dot" />handoff guard scans the patch</div></In>
+          <In d={1.2}><div className="note pass"><span className="dot" />verified before any PR</div></In>
+        </div>
                 <Foot left="Real /fix output, andriidrok1/aegis-demo-target @ 0ad1fc1" />
       </div>
     ),
     notes: "When a rule has no built-in fix, gpt-4.1 writes a replacement for the flagged span only, and our scanner splices it into the file. PR #56 shows why: when an LLM re-typed a whole file, it broke it.",
+  },
+  /* pi / overall */
+  {
+    el: (
+      <div className="slide">
+        <h1>Agentic product security, end to end, no human</h1>
+        <Feats items={[
+          ["2:57", "vulnerable push → merged and green", "g"],
+          ["8", "steps, push to merge, all autonomous"],
+          ["0", "verdicts made by a model", "r"],
+          ["3", "verification layers before a merge"],
+          ["1→9", "fix once, prevent everywhere: rulesmith + rollout"],
+          ["1", "Issue that tells the whole story"],
+        ]} />
+        <Foot />
+      </div>
+    ),
+    notes: "The full loop runs with no human: detect, prove, patch, verify, merge, re-scan. Rulesmith turns a fixed finding into a rule and rollout applies it across the fleet.",
   },
   /* 10 · how we know */
   {

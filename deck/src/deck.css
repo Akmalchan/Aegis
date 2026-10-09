@@ -125,3 +125,8 @@ table.checks td.reason { font-family: var(--font-mono); font-size: 18px; color: 
 .layer b { display: block; font-size: 22px; color: var(--ink-3); font-weight: 500; margin-bottom: 8px; }
 .artifact.lg { font-size: 25px; }
 .artifact .add { color: var(--pass); background: var(--pass-bg); border-radius: 4px; padding: 0 4px; }
+.feats { display: grid; grid-template-columns: 1fr 1fr; column-gap: 72px; margin-top: 36px; }
+.feat { display: grid; grid-template-columns: 200px 1fr; align-items: baseline; padding: 18px 0; border-bottom: 1px solid var(--rule); }
+.feat .n { font-size: 52px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.feat .t { font-size: 29px; line-height: 1.3; }
+.feat.r .n { color: var(--reject); } .feat.g .n { color: var(--pass); }

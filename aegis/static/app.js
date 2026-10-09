@@ -151,6 +151,7 @@
       countTo("kAgents", s.agents, fmtInt);
       countTo("kRepos", s.repos, fmtInt);
       $("howFindings").textContent = fmtK(s.findings);
+      if (s.findings && $("kMem")) $("kMem").textContent = fmtK(s.findings);
       setStatus(true, s.ch ? "Fleet online" : "Online");
     }).catch(function () { setStatus(false, "Offline"); });
   }
@@ -332,7 +333,7 @@
     function row(k, v, cls) { return "<div" + (cls ? ' class="' + cls + '"' : "") + "><dt>" + k + "</dt><dd>" + v + "</dd></div>"; }
     setHTML($("incFacts"),
       row("Agent", esc(agentName(anchor.agent))) +
-      row("Commit", sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "–") +
+      row("Commit (code version)", sha ? link(ghUrl(repo, "commit", sha), sha.slice(0, 7)) : "–") +
       row("Findings", String(anchor.n_findings || 0), unsafe ? "bad" : "good") +
       row("Scan time", fmtMs(anchor.ms || anchor.total_ms)) +
       row("Now at", esc(curStep.label) + (curStep.meta && curStep.meta !== "–" ? ' <span class="mut">· ' + esc(curStep.meta) + "</span>" : ""), /bad/.test(curStep.cls) ? "bad" : ""));
@@ -368,10 +369,10 @@
       var last = cur && cur.last_tool_call ? cur.last_tool_call.name : act.last ? (LABEL[act.last.kind] || String(act.last.kind).replace(/_/g, " ")) : "";
       return { n: act.n, html: '<li class="ar ' + state + '"' + (fleetAgents[name] ? ' title="' + esc(fleetAgents[name].join(", ")) + '"' : "") + '><span class="av2">' + esc(init) +
         '</span><span class="nm"><b>' + esc(agentName(name).replace(/^aegis-/, "")) + "</b><small>" + esc(role) + '</small></span><span class="pill ' + state + '">' + state +
-        '</span><span class="sq">' + sq + '</span><span class="ct"><b>' + act.n + "</b> actions</span>" +
+        '</span><span class="sq">' + sq + '</span><span class="ct"><b>' + act.n + "</b> action" + (act.n === 1 ? "" : "s") + "</span>" +
         '<span class="la">' + (last ? esc(last.charAt(0).toUpperCase() + last.slice(1)) + (lastTs ? " · " + ago(lastTs) : "") : "–") + "</span></li>", sentinel: !!fleetAgents[name] };
     });
-    var html = '<li class="ar-h"><span></span><span>Agent</span><span>State</span><span>Last 12 actions</span><span>Volume</span><span>Last action</span></li>' +
+    var html = '<li class="ar-h"><span></span><span>Agent</span><span>State</span><span>Recent activity</span><span>Total</span><span>Last action</span></li>' +
       rows.filter(function (r) { return r.sentinel; }).map(function (r) { return r.html; }).join("") +
       '<li class="ar-sep">Role agents</li>' +
       rows.filter(function (r) { return !r.sentinel; }).sort(function (x, y) { return y.n - x.n; }).map(function (r) { return r.html; }).join("");
@@ -413,7 +414,7 @@
         var r = String(h.repo || ""), ref = String(h.ref || "");
         return String(h.agent || "").length > 2 && !/test/.test(h.agent || "") && !/^(local:|\/private\/)/.test(r) && r !== "selftest/repo" && ref.indexOf("t->t:") !== 0;
       }).slice(0, 7);
-      $("hoHint").textContent = rows.length ? rows.length + " handoffs checked by Semgrep" : "Agent → agent handoffs, checked by Semgrep";
+      $("hoHint").textContent = rows.length ? rows.length + " handoffs checked by Semgrep" : "Handoffs checked by Semgrep";
       setHTML($("handoffs"), rows.length ? rows.map(function (h) {
         var m = /^(.+?)->(.+?):(.+)$/.exec(String(h.ref || ""));
         var from = h.agent || (m && m[1]) || "?", to = h.to_agent || (m && m[2]) || "?", what = h.artifact || (m && m[3]) || "";
