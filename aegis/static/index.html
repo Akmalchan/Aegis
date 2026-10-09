@@ -245,7 +245,7 @@
 <span class="t-l"><span class="t-d">        ⏱</span> <span class="t-g">new in this change · caught on day 0</span></span>
 <span class="t-l"> </span>
 <span class="t-l"> <span class="t-r">✗ HIGH</span>  <b>hardcoded-secret</b>  <span class="t-c">app.py:7</span>  <span class="t-d">CWE-798</span></span>
-<span class="t-l"><span class="t-d">        ✓ fix</span> <span class="t-g">ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]</span></span>
+<span class="t-l"><span class="t-d">        ✓ fix</span> <span class="t-g">ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")</span></span>
 <span class="t-l"> </span>
 <span class="t-l"><span class="t-d">────────────────────────────────────────</span></span>
 <span class="t-l"> <span class="t-r">✗ UNSAFE</span>  3 findings · <span class="t-r">2 high</span> · <span class="t-y">1 medium</span>  <span class="t-d">4.2s</span></span>
