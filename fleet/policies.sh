@@ -23,6 +23,7 @@ OWNER="${OWNER:-}"; CRED_ID="${CRED_ID:-}"; WORKSPACE="${WORKSPACE:-aegis}"
 WARDEN_NAME="${WARDEN_NAME:-aegis-warden}"; DRY="${DRY:-0}"; APPLY="${APPLY:-0}"
 [[ "$WORKSPACE" == *~* ]] || WORKSPACE="${OWNER:-<owner>}~$WORKSPACE"
 
+SENTINEL_OPS="repos_get,repos_get_content,repos_get_branch,repos_create_commit_comment,repos_list_pull_requests_associated_with_commit,repos_create_or_update_file_contents,git_create_ref,issues_create,issues_update,issues_create_comment,issues_list_for_repo,issues_list_comments,pulls_create,pulls_create_review,pulls_list"
 WARDEN_OPS="repos_get,repos_get_content,issues_list_for_repo,issues_create,issues_create_comment"
 
 python3 - "$FLEET" "$OUT" "$SENTINEL_OPS" "$WARDEN_OPS" "$WARDEN_NAME" "$WORKSPACE" <<'PY'

@@ -11,7 +11,7 @@
         "aegis-sentinel-01"
       ],
       "workspaces": [
-        "aegis"
+        "andriidrok1~aegis"
       ],
       "operations": [
         "repos_get",
@@ -33,7 +33,7 @@
       "resources": {
         "repos": [
           "andriidrok1/aegis-demo-target",
-          "andriidrok1/aegis-target-03",
+          "vincivv/aegis-target-01",
           "vincivv/snipbox"
         ]
       },
@@ -45,18 +45,18 @@
         "aegis-sentinel-01"
       ],
       "workspaces": [
-        "aegis"
+        "andriidrok1~aegis"
       ],
       "operations": [],
       "resources": {
         "repos": [
           "Akmalchan/Aegis",
-          "andriidrok1/aegis-target-04",
-          "andriidrok1/aegis-target-05",
-          "andriidrok1/aegis-target-06",
-          "andriidrok1/aegis-target-07",
-          "andriidrok1/aegis-target-08",
-          "andriidrok1/aegis-target-09"
+          "vincivv/aegis-target-04",
+          "vincivv/aegis-target-05",
+          "vincivv/aegis-target-06",
+          "vincivv/aegis-target-07",
+          "vincivv/aegis-target-08",
+          "vincivv/aegis-target-09"
         ]
       },
       "note": "aegis-sentinel-01: all operations denied on every other fleet repo"
@@ -67,7 +67,7 @@
         "aegis-sentinel-02"
       ],
       "workspaces": [
-        "aegis"
+        "andriidrok1~aegis"
       ],
       "operations": [
         "repos_get",
@@ -88,9 +88,9 @@
       ],
       "resources": {
         "repos": [
-          "andriidrok1/aegis-target-04",
-          "andriidrok1/aegis-target-05",
-          "andriidrok1/aegis-target-06"
+          "vincivv/aegis-target-04",
+          "vincivv/aegis-target-05",
+          "vincivv/aegis-target-06"
         ]
       },
       "note": "aegis-sentinel-02 may act only on its 3 repos"
@@ -101,17 +101,17 @@
         "aegis-sentinel-02"
       ],
       "workspaces": [
-        "aegis"
+        "andriidrok1~aegis"
       ],
       "operations": [],
       "resources": {
         "repos": [
           "Akmalchan/Aegis",
           "andriidrok1/aegis-demo-target",
-          "andriidrok1/aegis-target-03",
-          "andriidrok1/aegis-target-07",
-          "andriidrok1/aegis-target-08",
-          "andriidrok1/aegis-target-09",
+          "vincivv/aegis-target-01",
+          "vincivv/aegis-target-07",
+          "vincivv/aegis-target-08",
+          "vincivv/aegis-target-09",
           "vincivv/snipbox"
         ]
       },
@@ -123,7 +123,7 @@
         "aegis-sentinel-03"
       ],
       "workspaces": [
-        "aegis"
+        "andriidrok1~aegis"
       ],
       "operations": [
         "repos_get",
@@ -144,9 +144,9 @@
       ],
       "resources": {
         "repos": [
-          "andriidrok1/aegis-target-07",
-          "andriidrok1/aegis-target-08",
-          "andriidrok1/aegis-target-09"
+          "vincivv/aegis-target-07",
+          "vincivv/aegis-target-08",
+          "vincivv/aegis-target-09"
         ]
       },
       "note": "aegis-sentinel-03 may act only on its 3 repos"
@@ -157,17 +157,17 @@
         "aegis-sentinel-03"
       ],
       "workspaces": [
-        "aegis"
+        "andriidrok1~aegis"
       ],
       "operations": [],
       "resources": {
         "repos": [
           "Akmalchan/Aegis",
           "andriidrok1/aegis-demo-target",
-          "andriidrok1/aegis-target-03",
-          "andriidrok1/aegis-target-04",
-          "andriidrok1/aegis-target-05",
-          "andriidrok1/aegis-target-06",
+          "vincivv/aegis-target-01",
+          "vincivv/aegis-target-04",
+          "vincivv/aegis-target-05",
+          "vincivv/aegis-target-06",
           "vincivv/snipbox"
         ]
       },
@@ -179,7 +179,7 @@
         "aegis-warden"
       ],
       "workspaces": [
-        "aegis"
+        "andriidrok1~aegis"
       ],
       "operations": [
         "repos_get",
@@ -192,13 +192,13 @@
         "repos": [
           "Akmalchan/Aegis",
           "andriidrok1/aegis-demo-target",
-          "andriidrok1/aegis-target-03",
-          "andriidrok1/aegis-target-04",
-          "andriidrok1/aegis-target-05",
-          "andriidrok1/aegis-target-06",
-          "andriidrok1/aegis-target-07",
-          "andriidrok1/aegis-target-08",
-          "andriidrok1/aegis-target-09",
+          "vincivv/aegis-target-01",
+          "vincivv/aegis-target-04",
+          "vincivv/aegis-target-05",
+          "vincivv/aegis-target-06",
+          "vincivv/aegis-target-07",
+          "vincivv/aegis-target-08",
+          "vincivv/aegis-target-09",
           "vincivv/snipbox"
         ]
       },
