@@ -83,7 +83,14 @@ def guard_artifact(kind: str, language: str, content: str, from_agent: str, to_a
                 if baseline is not None:
                     names.append("baseline" + ext)
                     (tmp / names[1]).write_text(baseline)
-                all_f = scanner.run_semgrep(tmp, names)
+                all_f, errs = scanner.run_semgrep_with_errors(tmp, names)
+                unparsed = [f"Semgrep could not parse {ref or names[0]}: {e['type']}: {e['message'][:120]}"
+                            for e in scanner.parse_errors(errs, names[:1])]
+                if ext == ".py" and not unparsed:
+                    try:
+                        compile(content, ref or names[0], "exec")  # compile only, never executed
+                    except (SyntaxError, ValueError) as e:
+                        unparsed.append(f"py_compile failed on {ref or names[0]}: {type(e).__name__}: {e}")
                 pre = {(f["rule_id"], f["lines"].strip()) for f in all_f if f["path"] == names[-1]} if baseline is not None else set()
                 baseline_n = len(pre)
                 for f in all_f:
@@ -96,8 +103,10 @@ def guard_artifact(kind: str, language: str, content: str, from_agent: str, to_a
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
             blocking = [f for f in findings if f["severity"] in BLOCKING and not f.get("pre_existing")]
-            clean = not blocking
-            if clean:
+            clean = not blocking and not unparsed
+            if unparsed:
+                reason = "; ".join(unparsed) + f" — 0 findings is not clean ({len(findings)} findings)"
+            elif clean:
                 reason = (f"no new findings ({len(findings)} total, {baseline_n} pre-existing in baseline)" if baseline is not None
                           else f"no ERROR/WARNING findings ({len(findings)} INFO)" if findings else "no findings")
             else:
