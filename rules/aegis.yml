@@ -1,9 +1,17 @@
 rules:
+  # ---------------------------------------------------------------- SQL injection
   - id: aegis.sql-string-concat
     languages: [python]
     severity: ERROR
     message: SQL query built by string concatenation/format with user-controlled data. Use parameterized queries.
-    metadata: { cwe: "CWE-89", category: security }
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      fix_hint: >-
+        Pass user data as bound parameters instead of splicing it into the SQL text, e.g.
+        cur.execute("SELECT ... WHERE name LIKE ?", ("%" + q + "%",)) for sqlite3
+        (use %s placeholders for psycopg2/MySQLdb). No mechanical autofix: the placeholder
+        style depends on the DB driver.
     patterns:
       - pattern-either:
           - pattern: $CUR.execute("..." + $X, ...)
@@ -11,11 +19,20 @@ rules:
           - pattern: $CUR.execute(f"...", ...)
           - pattern: $CUR.execute("...".format(...), ...)
           - pattern: $CUR.execute("..." % $X, ...)
+
+  # ---------------------------------------------------------------- secrets
   - id: aegis.hardcoded-secret
     languages: [python]
     severity: ERROR
     message: Hard-coded secret/credential in source. Move to environment or a secrets manager.
-    metadata: { cwe: "CWE-798", category: security }
+    metadata:
+      cwe: "CWE-798"
+      category: security
+      fix_hint: >-
+        Read the value from the environment: NAME = os.environ["NAME"] (fails closed if unset).
+        The autofix inlines "import os;" because Semgrep cannot add imports; hoist it to the top
+        of the file. Rotate the leaked credential - it is still in git history.
+        Attribute targets (self.x = "...") get no rewrite (fix equals the original text).
     patterns:
       - pattern-either:
           - pattern: $KEY = "..."
@@ -23,33 +40,89 @@ rules:
           metavariable: $KEY
           regex: (?i).*(secret|password|passwd|api_key|apikey|token|private_key).*
       - pattern-not: $KEY = ""
+    # Only plain identifiers are rewritten; anything else (self.x = ...) is left as-is.
+    fix-regex:
+      regex: '^([A-Za-z_]\w*)\s*(?::[^=]*)?=[\s\S]*$'
+      replacement: 'import os; \1 = os.environ["\1"]'
+
+  # ---------------------------------------------------------------- debug mode
   - id: aegis.flask-debug-true
     languages: [python]
     severity: WARNING
     message: Flask app started with debug=True exposes the Werkzeug debugger (remote code execution if reachable).
-    metadata: { cwe: "CWE-489", category: security }
+    metadata:
+      cwe: "CWE-489"
+      category: security
+      fix_hint: Run with debug=False (or drive it from an env var such as FLASK_DEBUG, defaulting to off).
     pattern: $APP.run(..., debug=True, ...)
+    fix-regex:
+      regex: 'debug\s*=\s*True'
+      replacement: 'debug=False'
+
+  # ---------------------------------------------------------------- command injection
   - id: aegis.subprocess-shell-true
     languages: [python]
     severity: ERROR
     message: subprocess with shell=True and dynamic input enables command injection.
-    metadata: { cwe: "CWE-78", category: security }
+    metadata:
+      cwe: "CWE-78"
+      category: security
+      fix_hint: >-
+        Pass an argument list and drop shell=True, e.g.
+        subprocess.run(["ping", "-c", "1", host], check=True). Use shlex.split only on trusted strings.
     patterns:
-      - pattern-either:
-          - pattern: subprocess.$F(..., shell=True, ...)
-      - pattern-not: subprocess.$F("...", shell=True, ...)
+      - pattern: subprocess.$F(..., shell=True, ...)
+      - pattern-not: subprocess.$F("...", ..., shell=True, ...)
+      # list-literal commands are covered (with an autofix) by aegis.subprocess-shell-true-list
+      - pattern-not: subprocess.$F([...], ..., shell=True, ...)
+
+  - id: aegis.subprocess-shell-true-list
+    languages: [python]
+    severity: WARNING
+    message: subprocess called with an argument list and shell=True; the list is handed to /bin/sh, which is never what you want. Use shell=False.
+    metadata:
+      cwe: "CWE-78"
+      category: security
+      fix_hint: The arguments are already a list, so shell=False is a drop-in fix.
+    patterns:
+      - pattern: subprocess.$F([...], ..., shell=True, ...)
+    fix-regex:
+      regex: 'shell\s*=\s*True'
+      replacement: 'shell=False'
+
+  # ---------------------------------------------------------------- deserialization
   - id: aegis.yaml-unsafe-load
     languages: [python]
     severity: ERROR
     message: yaml.load without SafeLoader deserializes arbitrary objects.
-    metadata: { cwe: "CWE-502", category: security }
-    patterns:
+    metadata:
+      cwe: "CWE-502"
+      category: security
+      fix_hint: Use yaml.safe_load(data).
+    pattern-either:
       - pattern: yaml.load($X)
+      - pattern: yaml.unsafe_load($X)
+      - patterns:
+          - pattern-either:
+              - pattern: yaml.load($X, Loader=yaml.$L)
+              - pattern: yaml.load($X, yaml.$L)
+          - metavariable-regex:
+              metavariable: $L
+              regex: ^(Loader|UnsafeLoader|FullLoader|CLoader|CUnsafeLoader|CFullLoader)$
+    fix: yaml.safe_load($X)
+
+  # ---------------------------------------------------------------- code injection
   - id: aegis.eval-user-input
     languages: [python]
     severity: ERROR
     message: eval() on dynamic input allows arbitrary code execution.
-    metadata: { cwe: "CWE-95", category: security }
+    metadata:
+      cwe: "CWE-95"
+      category: security
+      fix_hint: >-
+        Use ast.literal_eval() for data literals; the autofix requires "import ast" at the top of
+        the file (Semgrep cannot add imports). If real expressions are needed, parse them explicitly.
     patterns:
       - pattern: eval($X)
       - pattern-not: eval("...")
+    fix: ast.literal_eval($X)
