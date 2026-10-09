@@ -101,6 +101,7 @@ Conventions
 - Sub-agent tools (aegis_triage, aegis_remediator, aegis_verifier) return {type: "text", text: "<json>"}: parse text as JSON. If a sub-agent call fails, retry once; if it fails again use the INLINE FALLBACK for that item.
 
 1. Parse the payload
+   1.0 Self-trigger guard (the fleet's own fix branches re-fire these webhooks): if ref starts with "refs/heads/aegis/" or pull_request_head_ref starts with "aegis/", this is a branch opened by an AEGIS agent and already verified by the remediator. Output {"verdict": "ignored", "notes": "aegis fix branch"} and stop. Do not scan, do not write anything to GitHub.
    1.1 repo = repository (owner/name). owner = text before "/", name = text after.
    1.2 If pull_request_number is non-empty: pull_request event. If event_action is not one of opened, synchronize, reopened, ready_for_review, or pull_request_draft is true: output verdict "ignored" and stop. Otherwise HEAD = pull_request_head_sha, BASE = pull_request_base_sha, PR_NUMBER = pull_request_number, BRANCH = pull_request_head_ref.
    1.3 Otherwise: push event. If deleted is true or after is ZERO_SHA: output verdict "ignored" and stop. HEAD = after, BASE = before, BRANCH = ref without the "refs/heads/" prefix (if ref does not start with refs/heads/, e.g. a tag, output "ignored" and stop).

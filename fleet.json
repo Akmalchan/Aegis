@@ -1,19 +1,19 @@
 {
   "agents": {
     "aegis-sentinel-01": [
-      "vincivv/snipbox",
+      "andriidrok1/snipbox",
       "andriidrok1/aegis-demo-target",
-      "vincivv/aegis-target-01"
+      "andriidrok1/aegis-target-01"
     ],
     "aegis-sentinel-02": [
-      "vincivv/aegis-target-04",
-      "vincivv/aegis-target-05",
-      "vincivv/aegis-target-06"
+      "andriidrok1/aegis-target-04",
+      "andriidrok1/aegis-target-05",
+      "andriidrok1/aegis-target-06"
     ],
     "aegis-sentinel-03": [
-      "vincivv/aegis-target-07",
-      "vincivv/aegis-target-08",
-      "vincivv/aegis-target-09"
+      "andriidrok1/aegis-target-07",
+      "andriidrok1/aegis-target-08",
+      "andriidrok1/aegis-target-09"
     ]
   },
   "report_repo": "Akmalchan/Aegis",

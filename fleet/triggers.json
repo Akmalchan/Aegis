@@ -1,0 +1,100 @@
+{
+  "triggers": [
+    {
+      "name": "aegis-sentinel-01--andriidrok1--aegis-demo-target--push",
+      "id": "01a1225f-c54b-6639-0000-49b79296e094",
+      "agent": "aegis-sentinel-01",
+      "repo": "andriidrok1/aegis-demo-target",
+      "event": "push",
+      "created_at": "2026-10-09T20:34:24+00:00"
+    },
+    {
+      "name": "aegis-sentinel-01--andriidrok1--aegis-demo-target--pull_request",
+      "id": "01a1225f-ca6d-6639-0000-9c95fcbc063f",
+      "agent": "aegis-sentinel-01",
+      "repo": "andriidrok1/aegis-demo-target",
+      "event": "pull_request",
+      "created_at": "2026-10-09T20:34:25+00:00"
+    },
+    {
+      "name": "aegis-sentinel-01--andriidrok1--snipbox--push",
+      "id": "01a12266-19dd-6639-0000-0ea59dc42e54",
+      "agent": "aegis-sentinel-01",
+      "repo": "andriidrok1/snipbox",
+      "event": "push",
+      "created_at": "2026-10-09T20:41:19+00:00"
+    },
+    {
+      "name": "aegis-sentinel-01--andriidrok1--snipbox--pull_request",
+      "id": "01a12266-1e3a-6639-0000-33f3fbc829f6",
+      "agent": "aegis-sentinel-01",
+      "repo": "andriidrok1/snipbox",
+      "event": "pull_request",
+      "created_at": "2026-10-09T20:41:20+00:00"
+    },
+    {
+      "name": "aegis-sentinel-01--andriidrok1--aegis-target-01--push",
+      "id": "01a12266-22b9-6639-0000-3dd42ac46b9a",
+      "agent": "aegis-sentinel-01",
+      "repo": "andriidrok1/aegis-target-01",
+      "event": "push",
+      "created_at": "2026-10-09T20:41:21+00:00"
+    },
+    {
+      "name": "aegis-sentinel-01--andriidrok1--aegis-target-01--pull_request",
+      "id": "01a12266-26e2-6639-0000-e406f3cbb5ba",
+      "agent": "aegis-sentinel-01",
+      "repo": "andriidrok1/aegis-target-01",
+      "event": "pull_request",
+      "created_at": "2026-10-09T20:41:22+00:00"
+    },
+    {
+      "name": "aegis-sentinel-02--andriidrok1--aegis-target-04--push",
+      "id": "01a1226e-9645-6639-0000-4945236bd53f",
+      "agent": "aegis-sentinel-02",
+      "repo": "andriidrok1/aegis-target-04",
+      "event": "push",
+      "created_at": "2026-10-09T20:50:35+00:00"
+    },
+    {
+      "name": "aegis-sentinel-02--andriidrok1--aegis-target-04--pull_request",
+      "id": "01a1226e-9abf-6639-0000-c24799e888fc",
+      "agent": "aegis-sentinel-02",
+      "repo": "andriidrok1/aegis-target-04",
+      "event": "pull_request",
+      "created_at": "2026-10-09T20:50:36+00:00"
+    },
+    {
+      "name": "aegis-sentinel-02--andriidrok1--aegis-target-05--push",
+      "id": "01a1226e-9f05-6639-0000-7a108d75c78e",
+      "agent": "aegis-sentinel-02",
+      "repo": "andriidrok1/aegis-target-05",
+      "event": "push",
+      "created_at": "2026-10-09T20:50:37+00:00"
+    },
+    {
+      "name": "aegis-sentinel-02--andriidrok1--aegis-target-05--pull_request",
+      "id": "01a1226e-a475-6639-0000-764d33903a85",
+      "agent": "aegis-sentinel-02",
+      "repo": "andriidrok1/aegis-target-05",
+      "event": "pull_request",
+      "created_at": "2026-10-09T20:50:38+00:00"
+    },
+    {
+      "name": "aegis-sentinel-02--andriidrok1--aegis-target-06--push",
+      "id": "01a1226e-a867-6639-0000-e113aa90b60b",
+      "agent": "aegis-sentinel-02",
+      "repo": "andriidrok1/aegis-target-06",
+      "event": "push",
+      "created_at": "2026-10-09T20:50:40+00:00"
+    },
+    {
+      "name": "aegis-sentinel-02--andriidrok1--aegis-target-06--pull_request",
+      "id": "01a1226e-ad12-6639-0000-b1f73bb6cb73",
+      "agent": "aegis-sentinel-02",
+      "repo": "andriidrok1/aegis-target-06",
+      "event": "pull_request",
+      "created_at": "2026-10-09T20:50:41+00:00"
+    }
+  ]
+}
