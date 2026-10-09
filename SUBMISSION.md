@@ -33,7 +33,7 @@ Guild.ai (agent hosting, webhook and cron triggers, custom integration, credenti
 - [x] **Pi (overall)**: a complete autonomous loop (detect, explain, patch, verify, close) running live on real GitHub repos, with no human in the loop except `git push`.
 - [x] **Guild.ai**: every agent is hosted on Guild, woken by Guild webhook and cron triggers, and calls our scanner as a Guild custom integration. Each agent is fenced by Guild credential policies, and the deny events are part of the demo.
 - [x] **Semgrep**: Semgrep is the detection engine. It runs `--baseline-commit` diff scans, our own rules carry `fix:` autofixes that become the agent's PR, and the registry packs and secrets rules run on every scan, on real vulnerabilities found in the target repos.
-- [x] **ClickHouse**: real-time analytics that directly drive detection and remediation (fleet-wide false-positive suppression, MTTR prioritisation, drift insights for the warden) over a full git-history backfill of `<N>` findings, queried live by the dashboard in milliseconds.
+- [x] **ClickHouse**: real-time analytics that directly drive detection and remediation (fleet-wide false-positive suppression, MTTR prioritisation, drift insights for the warden) over a full git-history backfill of 22,611 finding rows (1,088 commits, 2005–2026), queried live by the dashboard in milliseconds.
 
 ## Repository
 

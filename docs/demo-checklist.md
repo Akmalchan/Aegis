@@ -23,7 +23,39 @@ Run this from top to bottom 15 minutes before rehearsing or recording, and again
 
 ## Push commands
 
-_Owned by C2 (data stream): exact `git push` commands for `demo/vuln`, `demo/clean`, and resetting to `demo/base`. To be filled in._
+Tested on 2026-10-09 against `vincivv/aegis-target-01` (Flask) and `vincivv/aegis-target-04` (Express).
+Each demo repo has three refs: tag `demo/base` (clean `main`), branch `demo/vuln` (`demo/base` plus 1 commit that adds the vulnerable variant), and branch `demo/clean` (`demo/vuln` plus 1 commit with the fix).
+Pushing `demo/vuln` and then `demo/clean` to `main` is a normal fast-forward, so GitHub sends an ordinary push event with `before` set to the old commit and `after` set to the new one.
+`--force` is only there in case the agent's PR was merged in between.
+
+**One-time setup** (any directory outside the Aegis repo):
+
+```bash
+mkdir -p ~/aegis-demo && cd ~/aegis-demo
+gh repo clone vincivv/aegis-target-01
+gh repo clone vincivv/aegis-target-04
+```
+
+**target-01 (Flask: SQL injection, hard-coded key, `debug=True`, 3 findings)**
+
+```bash
+cd ~/aegis-demo/aegis-target-01 && git fetch origin --tags --force
+git push origin origin/demo/vuln:refs/heads/main --force      # 1. push the vulnerable code to main
+git push origin origin/demo/clean:refs/heads/main --force     # 2. push the fix (skip it if you merged the agent's PR)
+git push origin 'demo/base^{commit}:refs/heads/main' --force  # 3. reset main to clean before the next run
+```
+
+**target-04 (Express: command injection via `exec`, hard-coded `API_TOKEN`, reflected XSS, `eval`)**
+
+```bash
+cd ~/aegis-demo/aegis-target-04 && git fetch origin --tags --force
+git push origin origin/demo/vuln:refs/heads/main --force
+git push origin origin/demo/clean:refs/heads/main --force
+git push origin 'demo/base^{commit}:refs/heads/main' --force
+```
+
+After the reset, also close any AEGIS Issues and PRs left over from the rehearsal, e.g. `gh pr list -R vincivv/aegis-target-01` and `gh issue list -R vincivv/aegis-target-01`.
+To rebuild every target and its demo refs from scratch, run `fleet/make-targets.sh --refresh`. This rewrites the history of `main` on all 9 repos.
 
 ## 3-minute script
 

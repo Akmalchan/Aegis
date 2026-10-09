@@ -1,0 +1,14 @@
+{
+  "name": "aegis-demo-target-js",
+  "version": "1.0.0",
+  "description": "Tiny Express demo service monitored by AEGIS. Intentionally minimal.",
+  "main": "app.js",
+  "private": true,
+  "scripts": {
+    "start": "node app.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

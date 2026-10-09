@@ -3,17 +3,17 @@
     "aegis-sentinel-01": [
       "vincivv/snipbox",
       "andriidrok1/aegis-demo-target",
-      "andriidrok1/aegis-target-03"
+      "vincivv/aegis-target-01"
     ],
     "aegis-sentinel-02": [
-      "andriidrok1/aegis-target-04",
-      "andriidrok1/aegis-target-05",
-      "andriidrok1/aegis-target-06"
+      "vincivv/aegis-target-04",
+      "vincivv/aegis-target-05",
+      "vincivv/aegis-target-06"
     ],
     "aegis-sentinel-03": [
-      "andriidrok1/aegis-target-07",
-      "andriidrok1/aegis-target-08",
-      "andriidrok1/aegis-target-09"
+      "vincivv/aegis-target-07",
+      "vincivv/aegis-target-08",
+      "vincivv/aegis-target-09"
     ]
   },
   "report_repo": "Akmalchan/Aegis",

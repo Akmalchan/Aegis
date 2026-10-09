@@ -166,9 +166,9 @@ def api_events(n: int = Query(60, ge=1, le=500)):
 
 
 @router.get("/api/timeline", tags=["dashboard"])
-def api_timeline(weeks: int = Query(52, ge=1, le=520)):
+def api_timeline(weeks: int = Query(52, ge=1, le=1200), bucket: str = Query("week", pattern="^(week|month|quarter)$")):
     t0 = time.perf_counter()
-    rows, ok = _call("posture_timeline", weeks, default=[])
+    rows, ok = _call("posture_timeline", weeks, bucket, default=[])
     rows = _clean(list(rows or []))
     for r in rows:
         r["week"] = str(r.get("week", ""))[:10]

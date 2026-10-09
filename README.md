@@ -51,7 +51,7 @@ Guild's credential proxy injects the API key.
 | **ClickHouse** | Schema | [`clickhouse/schema.sql`](clickhouse/schema.sql) defines three MergeTree tables: `scans` (one row per agent run, with latency), `findings` (one row per finding per scan, with fingerprint, severity, CWE and commit time) and `actions` (every status, Issue, PR, dismissal and deny). |
 | | Enrichment that changes the verdict | Before an agent sees a finding, `ch.enrich` adds `seen_before` (how often the fleet has seen this fingerprint), `dismissed_before` (triage already called it a false positive, so it's suppressed fleet-wide) and `repo_mttr_h` (this repo's mean time to remediate, used to prioritise). |
 | | Insights for the warden | `GET /insights` returns rising repos (findings now vs the previous window), noisy rules (dismiss rate), reopened findings (a fingerprint that came back) and agent latency p50/p95 from `quantiles()`. |
-| | Backfill at scale | [`clickhouse/backfill.py`](clickhouse/backfill.py) replays Semgrep over the full git history of every fleet repo and inserts `<N>` findings across `<N>` commits. Each finding carries its real commit time. |
+| | Backfill at scale | [`clickhouse/backfill.py`](clickhouse/backfill.py) replays Semgrep over the git history of the 10 fleet repos plus 3 long-lived OSS projects (sqlmap, buildbot, NodeGoat; histories over 8k commits are evenly sampled to 400). That is 1,088 commits from 2005 to 2026 and 22,611 finding rows, each stamped with its real commit time. |
 | | Live dashboard | `/` shows the fleet, a live feed, a security posture timeline (findings per week by severity), latency and MTTR. All panels are ClickHouse queries refreshed every 2 to 30 s. |
 
 ## Run it

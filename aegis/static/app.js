@@ -183,6 +183,7 @@
       out.push('<text x="' + (ml - 8) + '" y="' + (yy + 5) + '" text-anchor="end">' + esc(fmtInt(Math.round(v))) + "</text>");
     }
     var lastLbl = -1e9, lastMonth = "";
+    var multiYear = data.length > 1 && data[data.length - 1].week.slice(0, 4) - data[0].week.slice(0, 4) >= 2; // label years
     data.forEach(function (d, i) {
       var x = ml + i * slot + gap / 2, base = mt + ph, segs = [];
       SEV.forEach(function (s) { if (d.v[s.key] > 0) segs.push(s); });
@@ -194,10 +195,11 @@
         else out.push('<rect x="' + x + '" y="' + yTop + '" width="' + bw + '" height="' + Math.max(hh, 0.5) + '" fill="' + s.color + '"/>');
         base = top;
       });
-      var month = d.week.slice(0, 7), cx = ml + i * slot + slot / 2;
-      if (month !== lastMonth && cx - lastLbl > 80) {
+      var month = d.week.slice(0, multiYear ? 4 : 7), cx = ml + i * slot + slot / 2;
+      if (month !== lastMonth && cx - lastLbl > (multiYear ? 50 : 80)) {
         var dt = new Date(d.week + "T00:00:00Z");
-        var lbl = dt.toLocaleString("en-US", { month: "short", timeZone: "UTC" }) + (dt.getUTCMonth() === 0 || lastLbl < 0 ? " " + dt.getUTCFullYear() : "");
+        var lbl = multiYear ? String(dt.getUTCFullYear())
+          : dt.toLocaleString("en-US", { month: "short", timeZone: "UTC" }) + (dt.getUTCMonth() === 0 || lastLbl < 0 ? " " + dt.getUTCFullYear() : "");
         out.push('<text x="' + cx + '" y="' + (H - 10) + '" text-anchor="middle">' + esc(lbl) + "</text>");
         lastLbl = cx;
       }
@@ -228,7 +230,7 @@
       }).join("") + "</tbody></table>";
   }
   function loadTimeline() {
-    return getJSON("/api/timeline?weeks=52").then(function (d) {
+    return getJSON("/api/timeline?weeks=1100&bucket=month").then(function (d) {
       tlRows = d.rows || [];
       var sel = $("repoSel"), cur = sel.value;
       var repos = {}; tlRows.forEach(function (r) { repos[r.repo] = 1; });
@@ -239,7 +241,7 @@
       $("tlNote").textContent = d.ch && !tlRows.length
         ? "ClickHouse online, no history yet. Run: uv run python clickhouse/backfill.py"
         : d.ch
-        ? fmtInt(total) + " finding-weeks across " + Object.keys(repos).length + " repos · distinct fingerprints per week by commit date · query " + d.ms + " ms"
+        ? fmtInt(total) + " finding-months across " + Object.keys(repos).length + " repos · distinct open fingerprints per month by commit date · query " + d.ms + " ms"
         : "ClickHouse offline — posture history unavailable (live feed and fleet cards use local state)";
       renderTimeline();
     }).catch(function () { $("tlNote").textContent = "timeline unavailable"; });

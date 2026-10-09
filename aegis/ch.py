@@ -243,6 +243,7 @@ SELECT repo, countIf(ts >= now64(3) - INTERVAL {h:UInt32} HOUR) AS findings_now,
        countIf(ts < now64(3) - INTERVAL {h:UInt32} HOUR) AS findings_prev,
        findings_now / greatest(findings_prev, 1) AS ratio
 FROM aegis.findings WHERE ts >= now64(3) - INTERVAL {h2:UInt32} HOUR AND status IN ('new', 'still_open')
+  AND agent != 'backfill'  -- backfill rows carry load time in ts; their real time is commit_ts
 GROUP BY repo HAVING findings_now > 0 ORDER BY ratio DESC, findings_now DESC LIMIT 10"""
 
 # filed/dismissed are distinct fingerprints so a dismissal logged both as a finding row and an action counts once.
@@ -313,16 +314,21 @@ def recent_events(n: int = 50) -> list[dict]:
 
 
 _POSTURE = """
-SELECT toString(toStartOfWeek(commit_ts)) AS week, repo, severity, uniqExact(fingerprint) AS n
+SELECT toString(BUCKET(commit_ts)) AS week, repo, severity, uniqExact(fingerprint) AS n
 FROM aegis.findings
 WHERE status IN ('new', 'still_open')
   AND commit_ts >= (SELECT max(commit_ts) FROM aegis.findings) - INTERVAL {w:UInt32} WEEK
 GROUP BY week, repo, severity ORDER BY week, repo, severity"""
 
 
-def posture_timeline(weeks: int = 52) -> list[dict]:
-    """[{week, repo, severity, n}]: distinct open fingerprints per commit week (window ends at the newest commit)."""
-    return _clean(_rows(_POSTURE, {"w": max(int(weeks), 1)}, "posture_timeline") or [])
+_BUCKETS = {"week": "toStartOfWeek", "month": "toStartOfMonth", "quarter": "toStartOfQuarter"}
+
+
+def posture_timeline(weeks: int = 52, bucket: str = "week") -> list[dict]:
+    """[{week, repo, severity, n}]: distinct open fingerprints per commit week/month/quarter (`week` = bucket start;
+    window of `weeks` ends at the newest commit)."""
+    sql = _POSTURE.replace("BUCKET", _BUCKETS.get(bucket, "toStartOfWeek"))  # whitelisted function name
+    return _clean(_rows(sql, {"w": max(int(weeks), 1)}, "posture_timeline") or [])
 
 
 def repo_mttr() -> list[dict]:
