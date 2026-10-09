@@ -130,6 +130,8 @@ def index():
 def mount(app: FastAPI) -> None:
     """Attach the dashboard router and /static to the scanner app."""
     app.include_router(router)
+    from . import patrol
+    patrol.start()
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -242,3 +244,25 @@ def api_alerts(hours: int = Query(48, ge=1, le=24 * 30)):
     out = _clean(out)
     out.sort(key=lambda r: r.get("ts") or 0, reverse=True)
     return {"ch": True, "alerts": out}
+
+
+@router.get("/api/breakdown", tags=["dashboard"])
+def api_breakdown():
+    """Findings by severity, top rules and top repos, across everything ClickHouse remembers."""
+    ch = _ch()
+    if ch is None or not _ch_on():
+        return {"ch": False, "severity": [], "rules": [], "repos": []}
+    sev = ch._rows("SELECT severity, count() AS n FROM aegis.findings GROUP BY severity ORDER BY n DESC", None, "breakdown") or []
+    rules = ch._rows("SELECT rule_id, count() AS n FROM aegis.findings GROUP BY rule_id ORDER BY n DESC LIMIT 8", None, "breakdown") or []
+    repos = ch._rows("SELECT repo, count() AS n, uniqExact(fingerprint) AS uniq FROM aegis.findings GROUP BY repo ORDER BY n DESC LIMIT 8", None, "breakdown") or []
+    return _clean({"ch": True, "severity": sev, "rules": rules, "repos": repos})
+
+
+@router.get("/api/stream", tags=["dashboard"])
+def api_stream(after: int = Query(0, ge=0)):
+    """Patrol log lines after a sequence number, plus running totals."""
+    from . import patrol
+    lines = patrol.since(after)[-120:]
+    st = dict(patrol.STATS)
+    st["rules"] = sorted(st["rules"].items(), key=lambda kv: -kv[1])[:5]
+    return {"on": bool(st["started"]), "lines": lines, "stats": st}
