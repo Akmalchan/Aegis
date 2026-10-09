@@ -59,14 +59,8 @@ rules:
     patterns:
       - pattern-either:
           - patterns:
-              - pattern-either:
-                  - pattern: const $KEY = "...";
-                  - pattern: let $KEY = "...";
-                  - pattern: var $KEY = "...";
-                  - pattern: $KEY = "..."
-              - pattern-not: const $KEY = "";
-              - pattern-not: let $KEY = "";
-              - pattern-not: var $KEY = "";
+              # also matches const/let/var declarations
+              - pattern: $KEY = "..."
               - pattern-not: $KEY = ""
           # object property: report on the property line, not the whole object
           - patterns:

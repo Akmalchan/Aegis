@@ -156,8 +156,8 @@ def scan(workdir: Path, files: list[str] | None = None, baseline_commit: str | N
             "severity": SEVERITY.get(str(extra.get("severity", "")).upper(), "INFO"),
             "cwe": _cwe(meta),
         }
-        if extra.get("fix") is not None:
-            f["fix"] = extra["fix"]
+        if extra.get("fix") is not None and extra["fix"].strip() != f["lines"].strip():
+            f["fix"] = extra["fix"]  # a fix that rewrites nothing (e.g. self.x = "...") is no fix
         if meta.get("fix_hint"):
             f["fix_hint"] = meta["fix_hint"]
         f["fingerprint"] = fingerprint(f)
