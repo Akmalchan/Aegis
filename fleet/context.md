@@ -1,6 +1,6 @@
 # AEGIS workspace context
 
-Paste this whole file into `guild workspace context edit <owner>~<workspace>`, then `guild workspace context publish`. Every agent in the workspace reads it before its own system prompt. `fleet/context.sh` regenerates the fleet-map block from `fleet.json`.
+`APPLY=1 OWNER=<owner> CONTEXT_ONLY=1 fleet/context.sh` pushes this file as the workspace context (draft + publish, no editor). Every agent in the workspace reads it before its own system prompt. `fleet/context.sh` regenerates the fleet-map block from `fleet.json`.
 
 ## What AEGIS is
 
