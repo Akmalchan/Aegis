@@ -274,3 +274,31 @@ git log --oneline -1 | grep -q "snippet search endpoint" && git revert --no-edit
 # wait for the green status on that push, then the live take:
 git am ~/PycharmProjects/aegis/demo/snipbox/vuln.patch && git push fork main
 ```
+
+## snipbox green take (F2, 15:15–15:27 PDT, deadline 15:30)
+
+Scanner change before the take: `aegis.hardcoded-secret` fix is now `import os; NAME = os.environ.get("NAME", "")`
+(rules/aegis.yml, rules/tests/aegis.fixed.py, rules/README.md, skills/remediation-playbook.md; `semgrep --test` 22/22 +
+fix test green). aegis/fix.py's OpenAI prompt already asked for `.get(..., "")`. Patch = C1's one-line-comment vuln.patch.
+Remediator 1.0.10 (guard hook) was published at 22:16:40 UTC, mid-take.
+
+| time (PDT) | after push | what |
+|---|---|---|
+| 15:15:01 | 0 | push `b49dd31` (`git am demo/snipbox/vuln.patch`) to fork main |
+| 15:15:27 | 26 s | status **failure** "3 finding(s)" |
+| 15:16:36 | 1 min 35 s | fix commit `20c75eb` on `aegis/fix-8e6cda252041` (hardcoded secret, `.get` form) |
+| 15:17:02 | 2 min 01 s | story Issue **#8** (hardcoded key) |
+| 15:17:08 | 2 min 07 s | verify: static ✅ 7.6 s, **regression ✅ 0.8 s** (the `.get` fix worked), **targeted_test ❌ 0 ms** → verified=false, no PR |
+| 15:17:55 / 15:18:15 | | Issues #9 (SQLi), #10 (comment injection), `issue_only` mode |
+
+Result: no PR, no merge. The regression blocker from the pre-run is gone; the gate now fails on `targeted_test` with
+0 ms, i.e. no targeted test exists/ran for a hard-coded secret, so the layer reports failed instead of skipped. Fix
+options: treat targeted_test as n/a for `aegis.hardcoded-secret` in verify, or make the remediator take the SQLi
+(which has a targeted test) as the primary finding.
+
+Session: https://app.guild.ai/sessions/01a122bb-ee3d-5f3d-0000-2f8b6fdecf7d · Issues
+https://github.com/andriidrok1/snipbox/issues/8 #9 #10.
+
+Reset (15:26): revert `f89ba9c` pushed to fork main, Issues #8 #9 #10 closed "reset for live demo",
+`aegis/fix-8e6cda252041` deleted. Only `main` left.
+Clean push `f89ba9c` → status **success** "no new findings" at 15:26:49 PDT. snipbox is ready for the live take.

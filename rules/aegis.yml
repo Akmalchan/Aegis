@@ -29,7 +29,7 @@ rules:
       cwe: "CWE-798"
       category: security
       fix_hint: >-
-        Read the value from the environment: NAME = os.environ["NAME"] (fails closed if unset).
+        Read the value from the environment: NAME = os.environ.get("NAME", "") (empty if unset, so imports and tests keep working).
         The autofix inlines "import os;" because Semgrep cannot add imports; hoist it to the top
         of the file. Rotate the leaked credential - it is still in git history.
         Attribute targets (self.x = "...") get no rewrite (fix equals the original text).
@@ -43,7 +43,7 @@ rules:
     # Only plain identifiers are rewritten; anything else (self.x = ...) is left as-is.
     fix-regex:
       regex: '^([A-Za-z_]\w*)\s*(?::[^=]*)?=[\s\S]*$'
-      replacement: 'import os; \1 = os.environ["\1"]'
+      replacement: 'import os; \1 = os.environ.get("\1", "")'
 
   # ---------------------------------------------------------------- debug mode
   - id: aegis.flask-debug-true

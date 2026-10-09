@@ -82,10 +82,10 @@ Identifiers (table or column names) cannot be parameters. Map them through a dic
 API_KEY = "sk-live-4f8a..."
 # after
 import os
-API_KEY = os.environ["AEGIS_API_KEY"]   # or os.environ.get("AEGIS_API_KEY", "")
+API_KEY = os.environ.get("AEGIS_API_KEY", "")   # .get keeps imports and test collection working when unset
 ```
 
-Use `os.environ[...]` (fail loud) for things the app cannot run without; `.get` with a safe default for optional ones. Pick the variable name from the constant name. In the PR body say the secret must be rotated: the old value is in git history forever.
+Default to `os.environ.get(NAME, "")`: `os.environ[NAME]` raises KeyError at import time and breaks the repo's own test suite in verify (snipbox pre-run). Use `[...]` only when the app already reads other required env vars that way. Pick the variable name from the constant name. In the PR body say the secret must be rotated: the old value is in git history forever.
 
 ### `shell=True` to list args (CWE-78)
 
