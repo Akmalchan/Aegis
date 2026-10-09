@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AEGIS fleet</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>AEGIS <span class="dot">·</span> autonomous security fleet</h1>
+    <div class="sub" id="sub">connecting…</div>
+  </div>
+  <div class="chips" id="chips"></div>
+</header>
+
+<main class="layout">
+  <div class="col-main">
+    <section class="panel">
+      <h2>Fleet</h2>
+      <div class="fleet" id="fleet"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Security posture · findings per week</h2>
+        <div class="controls">
+          <label for="repoSel" class="muted">repo</label>
+          <select id="repoSel"><option value="">All repos</option></select>
+          <button id="tblBtn" type="button">table</button>
+        </div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="chart" id="chart"></div>
+      <div class="tablewrap" id="tbl" hidden></div>
+      <div class="note" id="tlNote"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Fleet intelligence <span class="muted small" id="insHours"></span></h2>
+      <div class="insights">
+        <div class="mini"><h3>Rising repos</h3><div id="rising"></div></div>
+        <div class="mini"><h3>Noisy rules</h3><div id="noisy"></div></div>
+        <div class="mini"><h3>Reopened findings</h3><div id="reopened"></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col-side">
+    <section class="panel feed-panel">
+      <div class="panel-head"><h2>Live feed</h2><span class="muted small" id="feedSrc"></span></div>
+      <ol class="feed" id="feed"></ol>
+    </section>
+
+    <section class="panel">
+      <h2>Agent latency</h2>
+      <div id="latency"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Mean time to remediate</h2>
+      <div id="mttr"></div>
+    </section>
+  </div>
+</main>
+
+<div class="flash" id="flash" aria-live="assertive"><div class="flash-inner" id="flashText"></div></div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
