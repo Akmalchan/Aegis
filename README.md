@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="AEGIS" width="84" />
+  <img src="docs/banner.png" alt="Aegis" width="760" />
 </p>
-
-<h1 align="center">AEGIS</h1>
 
 <p align="center">
   <b>Security agents for every repo. Nobody clicks.</b><br />

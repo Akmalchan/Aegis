@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="AEGIS logo">
-  <rect width="120" height="120" rx="28" fill="#0a0a0a"/>
-  <path d="M60 22 32 32v22c0 18.5 12 34.5 28 39.5C76 88.5 88 72.5 88 54V32L60 22Z" fill="none" stroke="#ffffff" stroke-width="6" stroke-linejoin="round"/>
-  <path d="m47 57 9.5 9.5L74 48" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="92" cy="92" r="9" fill="#ffe03d"/>
-</svg>
