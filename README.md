@@ -1,135 +1,200 @@
-# AEGIS: an autonomous security fleet for GitHub
+<p align="center">
+  <img src="docs/logo.svg" alt="AEGIS" width="84" />
+</p>
 
-> Cyberdefense Hackathon, 2026-10-09. Built on Guild.ai, Semgrep, OpenAI, ClickHouse, GitHub.
+<h1 align="center">AEGIS</h1>
 
-AI agents write code faster than any security team can read it. AEGIS is a security team that scales the same way: a fleet of agents hosted on Guild.ai, one sentinel per three GitHub repos. On every push the sentinel asks our Semgrep scanner whether the change made the repo unsafe. If it did, the agent proves the bug with a test, asks for a patch that touches only the flagged lines, re-checks the patch three ways, writes one Issue that tells the whole story, and merges the fix itself when (and only when) the checks pass. Nothing an LLM wrote reaches the repo unverified. ClickHouse remembers every scan, finding and action across the fleet, and that memory changes what the agents do next: a false positive dismissed once is never filed again anywhere.
+<p align="center">
+  <b>Security agents for every repo. Nobody clicks.</b><br />
+  On every push, an agent on Guild.ai asks Semgrep whether the change made the repo unsafe.<br />
+  If it did, the agent proves the bug, patches only the flagged lines, verifies the fix three ways and merges it.<br />
+  ClickHouse remembers every decision, so the fleet gets smarter with every push.
+</p>
 
-## The loop, in 8 steps
+<p align="center">
+  <a href="https://tokensand.com/p/aegis-2"><img alt="Cyberdefense Hackathon" src="https://img.shields.io/badge/Cyberdefense_Hackathon-SF_Tech_Week_2026-0a0a0a?style=for-the-badge&labelColor=ffe03d" /></a>
+  <a href="https://youtu.be/qWBtfWlOsAU"><img alt="Demo video" src="https://img.shields.io/badge/demo-video-ff4a3d?style=for-the-badge&labelColor=0a0a0a" /></a>
+</p>
 
-1. **Push.** A GitHub webhook fires a Guild trigger for that repo; the sentinel that owns the repo wakes up (session spawned 1 to 4 s after the push).
-2. **Semgrep finds.** `scan_diff(repo, before, after)` runs `semgrep --baseline-commit` through our scanner, so only findings the push introduced count. The verdict (`safe` / `unsafe`) is the scanner's field; the model cannot override it. Red or green commit status lands on the sha within about 30 s.
-3. **Validated.** The `triage` sub-agent reads the one file at the one sha and traces source, sink and consequence. Then the remediator writes a small pytest that must fail on the vulnerable commit.
-4. **Fix.** `fix_code` returns a patch for one finding: the Semgrep rule's own `fix:` when the rule has one, otherwise OpenAI `gpt-4.1` writes a replacement for the flagged span only (temperature 0, span-locked, the full file is assembled by the scanner, never by the LLM). The patch itself is Semgrep-scanned before it is handed back.
-5. **Re-check.** `verify_fix` runs three layers against base and head: L1 the fingerprint is gone and nothing new appeared; L2 the repo's own test suite still passes; L3 the targeted test fails at base and passes at head.
-6. **One Issue tells the story.** Summary, what was found, how it was validated, the diff, each verification layer with its timing, and the decision. Fingerprint in a footer so the fleet can match it later.
-7. **Decision.** Verified: the agent opens the PR, labels it `aegis:verified`, and merges it. Not verified: the Issue stays open with the reason, nothing is pushed.
-8. **Merge re-triggers the sentinel.** The merge commit is scanned like any push: status goes green, and the Issue is closed with a "re-scanned at `<sha>`" comment after a full scan confirms the finding is gone.
+<p align="center">
+  <img alt="Guild.ai" src="https://img.shields.io/badge/Guild.ai-11_hosted_agents-0a0a0a?style=for-the-badge" />
+  <img alt="Semgrep" src="https://img.shields.io/badge/Semgrep-22_custom_rules-0a0a0a?style=for-the-badge" />
+  <img alt="ClickHouse" src="https://img.shields.io/badge/ClickHouse-39k_findings-0a0a0a?style=for-the-badge" />
+  <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-span--only_patches-0a0a0a?style=for-the-badge" />
+</p>
 
-## Architecture
+<p align="center">
+  <a href="#why">Why</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#results">Results</a> ·
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#run-it-yourself-the-aegis-cli">CLI</a> ·
+  <a href="#sponsor-tools">Sponsor tools</a> ·
+  <a href="#how-we-know">How we know</a> ·
+  <a href="#run-it">Run it</a> ·
+  <a href="#team">Team</a>
+</p>
+
+<p align="center">
+  <img src="docs/aegis-cover.png" alt="AEGIS: a sentinel catches two findings on push, opens Issue #76 and fix PR #77, a test fails before the fix and passes after, the PR is merged" width="860" />
+</p>
+
+---
+
+## Why
+
+AI agents write code faster than any security team can read it. Real-world numbers from the git history of the open-source projects we scanned: a vulnerability, once committed, took a **median of 170 days** to be fixed, and **328 are still open today**, live for a median of **8.7 years**. The oldest has been sitting in a popular codebase for **15.5 years**.
+
+**AEGIS** is a security team that scales the same way the code does: a fleet of agents hosted on Guild.ai, one sentinel per three GitHub repos, catching the bug **on day 0**, at the push that introduces it, and fixing it before anyone has to triage a ticket.
+
+## How it works
+
+The model never looks for bugs. Semgrep does, deterministically. The model only explains and repairs what Semgrep found, and every repair has to prove itself before it ships.
 
 ```
-push / PR ──▶ GitHub ──▶ Guild webhook trigger ──▶ aegis-sentinel-0N (Guild llmAgent, 3 repos each)
-                                                     │  scan_diff ─────────────┐
-                                                     │  set_status ❌/✅        │  aegis-scanner (Guild custom integration,
-                                                     │  aegis_triage ──────────┤  OpenAPI import, key injected by Guild's proxy)
-                                                     │  aegis_remediator       │   FastAPI + Semgrep CLI 1.180
-                                                     │    fix_code ────────────┤   /scan/diff /scan/full /fix /verify /status
-                                                     │    verify_fix ──────────┤   /actions /insights /rules/propose /guard
-                                                     │    Issue → PR → merge   │   OpenAI gpt-4.1 for span-only patches
-                                                     │  aegis_verifier (close) │
-                                                     └──────────────────────────┘
-                                                                  │ every scan, finding, action, handoff
-                                                                  ▼
-cron ──▶ aegis-warden (scan_full every 30 min, drift report)   ClickHouse Cloud: scans / findings / actions
-cron ──▶ aegis-reporter (hourly fleet report with charts)       enrich: seen_before, dismissed_before, repo_mttr_h
-issue ──▶ aegis-rulesmith (finding → learned rule → PR)         insights: rising repos, noisy rules, reopened, p50/p95
-issue ──▶ aegis-onboarder ("onboard: owner/repo" → fleet.json PR)
+git push ──► Guild webhook ──► sentinel agent ──► Semgrep diff scan ──► unsafe?
+                                                                        │ yes
+      triage ◄──────────────────────────────────────────────────────────┘
+      │
+      ▼
+      failing test ──► span-only patch ──► 3-layer check ──► verified PR ──► merged
+                                                                             │
+      ClickHouse remembers every scan, finding and action ◄──────────────────┘
 ```
 
-The scanner runs outside Guild because the Guild sandbox has no shell and no outbound fetch, so Semgrep cannot run inside an agent. Agents reach it as a normal Guild integration generated from [`openapi.yaml`](openapi.yaml).
+1. **Push.** A GitHub webhook fires a Guild trigger; the sentinel that owns the repo wakes up within 1 to 4 s.
+2. **Semgrep finds.** `scan_diff` runs `semgrep --baseline-commit`, so only findings the push introduced count. The verdict comes from the scanner, not the model; a red or green commit status lands in about 25 s.
+3. **Proven real.** The `triage` sub-agent traces source → sink → consequence and writes a test that **fails** on the vulnerable commit.
+4. **Fix.** The Semgrep rule's own `fix:` when it has one, otherwise OpenAI `gpt-4.1` rewrites **only the flagged span** (temperature 0; the scanner assembles the file, never the LLM). The patch is Semgrep-scanned before it is handed on.
+5. **Re-checked, three ways.** L1 the finding is gone and nothing new appeared · L2 the repo's own tests pass · L3 the new test fails at base and passes at head.
+6. **One Issue tells the story.** What was found, how it was proven, the diff, every check with its timing, and the decision.
+7. **Decision.** Verified: the agent opens the PR, labels it `aegis:verified` and merges it. Not verified: nothing is pushed and the Issue says why.
+8. **Merge re-triggers the sentinel.** The merge commit is scanned like any push and goes green.
 
-Fleet today: 10 Guild agents (`guild agent list --owner andriidrok1`), 23 triggers (21 webhook + 2 cron, `guild trigger list`), 9 monitored repos in [`fleet.json`](fleet.json). Adding a repo is an Issue titled `onboard: owner/repo`; the onboarder files the `fleet.json` PR.
+Each sentinel can only act on its own three repos. That fence is enforced by Guild's credential proxy, not by a prompt: a call on a foreign repo is refused before it reaches GitHub.
 
-## Sponsor tools and exactly how each is used
+## Results
 
-| Tool | What | Where |
-|---|---|---|
-| **Guild.ai** | 10 hosted TypeScript `llmAgent`s: `aegis-sentinel-01..03` (3 repos each), sub-agents `triage`, `remediator`, `verifier` wired as tools of the sentinel, `warden` and `reporter` on cron, `rulesmith` and `onboarder` on `issues` webhooks | [`guild-agent/`](guild-agent/), [`fleet/deploy.sh`](fleet/deploy.sh) |
-| | 21 GitHub webhook triggers (push + pull_request per repo, issues for rulesmith/onboarder) and 2 time triggers | `guild trigger list`, [`fleet/triggers.json`](fleet/triggers.json) |
-| | Custom integration `aegis-scanner` imported from OpenAPI; Guild's credential proxy injects `X-AEGIS-Key`, the agents never see it | [`openapi.yaml`](openapi.yaml), [`fleet/integration.sh`](fleet/integration.sh) |
-| | Credential policies, least privilege, no catch-all: each sentinel may act only on its 3 repos; triage/remediator/verifier only on the 9 fleet repos; rulesmith/onboarder/reporter write only to the AEGIS repo and read the fleet; warden reads the fleet and files issues in the report repo. Anything else is refused by the proxy before it reaches GitHub (proven, see [`docs/LIVE-RUN.md`](docs/LIVE-RUN.md) "Deny proof") | [`fleet/policies.sh`](fleet/policies.sh) |
-| | Skills `aegis~security-review`, `aegis~remediation-playbook`; evals for the sentinel | [`skills/`](skills/), [`evals/`](evals/) |
-| **Semgrep** | Diff scans with `--baseline-commit`; 19 bundled rules (Python, JS/TS) with CWE metadata, 5 with `fix:` that become the patch; registry packs `p/security-audit`, `p/secrets` | [`aegis/scanner.py`](aegis/scanner.py), [`rules/`](rules/) |
-| | Rules for AI-generated code: `aegis.agent-directed-instruction-in-comment` (a comment that tells the reviewing agent what to do is itself a finding, CWE-1427) and taint rules `aegis.taint-llm-output-to-exec` (LLM response → `eval/exec/subprocess/execute/requests/open`, `json.loads` sanitizes) and `aegis.taint-request-to-sql`; dataflow traces attached to the finding and quoted in the Issue | [`rules/aegis-agent-injection.yml`](rules/aegis-agent-injection.yml), [`rules/aegis-taint.yml`](rules/aegis-taint.yml), [`docs/SEMGREP-DEEP.md`](docs/SEMGREP-DEEP.md) |
-| | Handoff guard: every artifact one agent hands another (patch, test, rule) is Semgrep-scanned first; a patch that introduces a finding is rejected before any PR exists | [`aegis/guard.py`](aegis/guard.py), `POST /guard` |
-| | Learned-rule gate: `semgrep --validate` + `semgrep --test` with `ruleid:`/`ok:` fixtures on every proposed rule, and in CI | [`aegis/rules_api.py`](aegis/rules_api.py), [`.github/workflows/semgrep-rules.yml`](.github/workflows/semgrep-rules.yml) |
-| | Self-audit of AEGIS itself: 127 files, 15 → 4 findings, 0 ERROR | [`tests/self_audit.sh`](tests/self_audit.sh), [`docs/SELF-AUDIT.md`](docs/SELF-AUDIT.md) |
-| **OpenAI** | `gpt-4.1` writes the replacement for the flagged span when the rule carries no `fix:`; output is JSON, temperature 0, scanned by the guard, then verified L1 to L3. Guild's LLM provider runs the agents' own reasoning | [`aegis/fix.py`](aegis/fix.py) |
-| **ClickHouse Cloud** | Tables `scans`, `findings`, `actions` (MergeTree); backfill of Semgrep over the git history of the fleet plus 10 open-source projects (sqlmap, buildbot, NodeGoat, juice-shop, salt, ansible, luigi, pygoat, redash, Vulnerable-Flask-App): 2,007 commits, 38,739 finding rows, 2005 to 2026 | [`clickhouse/schema.sql`](clickhouse/schema.sql), [`clickhouse/backfill.py`](clickhouse/backfill.py) |
-| | Enrichment inside the verdict path: `seen_before`, `dismissed_before` (suppressed fleet-wide), `repo_mttr_h`; `GET /insights` for rising repos, noisy rules, reopened findings, agent latency p50/p95, handoff stats; the dashboard is ClickHouse queries only | [`aegis/ch.py`](aegis/ch.py), [`aegis/dashboard.py`](aegis/dashboard.py) |
-| | **Priority that steers the fix:** the same enrichment query adds `exposure_days` and the rule's fleet-wide dismiss rate; every finding gets a 0-100 `priority` with reasons, and scans return findings highest priority first, so fleet history picks the one finding the remediator fixes per push | [`aegis/ch.py`](aegis/ch.py) `enrich`, `rank` |
-| | **Real-time rollups:** materialized views `posture_daily` (AggregatingMergeTree, `uniqState`) and `agent_activity_1m` (SummingMergeTree) update on every insert; the 20-year posture timeline reads the rollup (~45 ms). `windowFunnel` fix funnel (detected → Issue → PR → verified → closed, median time per stage) and an anomaly watch over the agents themselves (bursts, policy denies). Full write-up: [`clickhouse/README.md`](clickhouse/README.md) | [`clickhouse/views.sql`](clickhouse/views.sql), `/api/funnel`, `/api/anomalies` |
-| **GitHub** | Commit statuses (`AEGIS / security-check`), Issues, branches via the Git Data API (plain text, no base64), PRs, labels, merges, all through Guild's GitHub credential | [`guild-agent/remediator/README.md`](guild-agent/remediator/README.md) |
+Measured on real GitHub webhooks through Guild, real Semgrep scans and the live ClickHouse database ([`docs/LIVE-RUN.md`](docs/LIVE-RUN.md)).
 
-## How we know
+**One push, end to end** (`andriidrok1/aegis-demo-target`, [PR #77](https://github.com/andriidrok1/aegis-demo-target/pull/77)):
 
-The model never looks for bugs; Semgrep does, over the whole checkout, with no context window. The model only explains and repairs what Semgrep found, and every repair must survive L1 static re-scan, L2 the repo's own tests and L3 a targeted test that fails on the vulnerable commit. A no-op fix is rejected (negative control: head = base gives `verify_failed`). Everything from the repo (code, comments, commit messages, PR bodies) is data, never instructions; the demo repo carries a comment that asks the agent to pass the file, and Semgrep reports that comment as a finding. Full write-up: [`docs/HOW-WE-KNOW.md`](docs/HOW-WE-KNOW.md).
-
-## Live-run numbers
-
-From real GitHub webhooks through Guild on `andriidrok1/aegis-demo-target` ([`docs/LIVE-RUN.md`](docs/LIVE-RUN.md)):
-
-| Measured | Time after `git push` |
+| After `git push` | |
 |---|---|
-| Guild session spawned | 1 to 4 s |
-| Red commit status on a vulnerable push | 20 to 28 s (24 s in the final run) |
-| Green status on a harmless push | 22 to 48 s |
-| Story Issue opened | 1 min 46 s to 2 min 12 s |
-| Fix PR opened | 2 min 22 s (final one-fix-per-push flow, after the verify gate) |
-| PR labelled `aegis:verified` | 2 min 28 s |
-| PR merged by the agent | 2 min 34 s (`github_pulls_merge`, PR #77) |
-| Green status on the merge commit | 2 min 57 s |
-| Story Issue closed after merge | not yet: the merge-push session skipped the full-scan/verifier step in both auto-merge runs (fix published, untested) |
-| `verify_fix` | static 3.8 to 8 s, targeted test ~0.2 s |
-| Policy deny on a foreign repo | refused by the proxy, `http_status_code: null` |
+| Guild session spawned | **1 to 4 s** |
+| Red commit status on the vulnerable commit | **~25 s** |
+| Story Issue opened | **~2 min** |
+| Fix PR opened, verified and **merged by the agent** | **2 min 34 s** |
+| Size of the fix | **+2 / −1 lines, 1 file** |
+| Scan time | **2.5 s** median · 5.0 s p95 (Semgrep alone 1.6 s) |
+
+**The exposure clock** (Semgrep over the full git history of 10 open-source projects, 2005 to 2026):
+
+| | |
+|---|---|
+| Vulnerabilities tracked through history | **1,234** |
+| Median time until a human fixed them | **170 days** (p90 718 days) |
+| Still open today | **328** (27%), live a median of **8.7 years** |
+| Oldest still open | **15.5 years** |
+| With AEGIS | **caught on day 0** |
+
+**The fleet**
+
+| | |
+|---|---|
+| Agents on Guild · repos guarded | **11 · 9** |
+| Scans · findings remembered in ClickHouse | **2,157 · 39,090** (1,255 unique, 21 rules) |
+| Issues and PRs opened by the agents | **62 Issues · 18 PRs** |
+| AI patches rejected by the verify gate | **48 rejected, 27 passed**: nothing ships without proof |
+| Agent-to-agent handoffs rejected by the Semgrep guard | **11 of 31** |
+| Patrol: fresh public repos scanned live in one evening | **1,207**, 21% with real issues, **349 hardcoded secrets**, 14 prompt-injection strings |
+
+## What it does
+
+- **Fleet of agents on Guild:** sentinels (one per 3 repos), sub-agents `triage`, `remediator`, `verifier`, plus `warden` (cron fleet scans), `reporter` (hourly report), `rulesmith` (turns a confirmed bug into a new tested Semgrep rule for the whole fleet) and `onboarder` (an Issue titled `onboard: owner/repo` adds a repo)
+- **Can't be talked into green:** a code comment telling the agent to approve the file is itself a Semgrep finding (CWE-1427); repo content is data, never instructions
+- **Memory that changes behaviour:** a false positive dismissed once is never filed again anywhere in the fleet; every finding gets a priority from fleet history; every Issue says how often the bug was seen and how fast this repo fixes things
+- **Live control room:** fleet map, the 8-step timeline of the latest push, agent roster, handoff guard, Patrol terminal and a live chat of every agent action
+- **Patrol:** scans freshly pushed public repos with the AEGIS rules and streams what it finds. Repo names are masked, code is never shown, results stay in memory
+- **GitHub code scanning:** findings uploaded as SARIF to the repo's Security tab
+- **The `aegis` CLI:** the same engine on your laptop or in CI
 
 ## Run it yourself: the `aegis` CLI
 
-Same engine and rules as the fleet, on your laptop or in CI. No server, no Guild, no accounts. Needs `semgrep` on PATH (`pipx install semgrep`).
+Same engine and rules as the fleet. No server, no Guild, no accounts. Needs `semgrep` on PATH (`pipx install semgrep`).
 
 ```bash
 pipx install git+https://github.com/Akmalchan/Aegis
-aegis scan                         # this repo; exit 1 if unsafe, so CI fails the build
-aegis scan --diff main             # only what this branch introduced, like a push
+aegis scan                                # this repo; exit 1 if unsafe, so CI fails the build
+aegis scan --diff main                    # only what this branch introduced, like a push
 aegis scan owner/repo --sarif out.sarif   # any GitHub repo + SARIF for code scanning
-aegis fleet                        # fleet numbers + exposure clock (needs a running scanner)
-aegis watch                        # live feed of the agents
+aegis fleet                               # fleet numbers + exposure clock (needs a running scanner)
+aegis watch                               # live feed of the agents
 ```
 
-Every finding shows severity, CWE, the matched line, the taint path (source → sink), the exposure clock (how long it has been live) and Semgrep's autofix or fix hint. `--json` for machines, `--fail-on error|warning|never` for CI.
+```
+ ✗ HIGH  sql-string-concat  app.py:28  CWE-89
+        │ cur.execute("SELECT id, name, email FROM users WHERE name LIKE '%" + q + "%'")
+        ⤷ taint source :26 → sink :28
+ ✗ HIGH  hardcoded-secret  app.py:7  CWE-798
+        ✓ fix import os; ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
+────────────────────────────────────────────────────────────────
+ ✗ UNSAFE  3 findings in 1 files  2 high · 1 medium  4.0s
+ ✓ 2 with a ready-made Semgrep autofix
+```
+
+Every finding shows severity, CWE, the matched line, the taint path, the exposure clock and Semgrep's autofix or fix hint. `--json` for machines, `--fail-on error|warning|never` for CI.
+
+## Sponsor tools
+
+| Tool | How AEGIS uses it |
+|---|---|
+| **Guild.ai** | 11 hosted TypeScript `llmAgent`s ([`guild-agent/`](guild-agent/)); 21 webhook + 2 cron triggers ([`fleet/triggers.json`](fleet/triggers.json)); the scanner as a custom integration imported from [`openapi.yaml`](openapi.yaml), with the API key injected by Guild's proxy; least-privilege credential policies per agent ([`fleet/policies.sh`](fleet/policies.sh)); skills and evals ([`skills/`](skills/), [`evals/`](evals/)) |
+| **Semgrep** | Diff scans with `--baseline-commit`; 22 bundled rules (Python, JS/TS) with CWE metadata and autofixes ([`rules/`](rules/)); taint rules for AI-generated code and the prompt-injection rule ([`docs/SEMGREP-DEEP.md`](docs/SEMGREP-DEEP.md)); a handoff guard that scans every patch, test and rule one agent hands another ([`aegis/guard.py`](aegis/guard.py)); `--validate` + `--test` on every learned rule, in CI too; a self-audit of AEGIS itself ([`docs/SELF-AUDIT.md`](docs/SELF-AUDIT.md)) |
+| **ClickHouse** | `scans`, `findings`, `actions` tables plus a backfill over 2,007 commits of history ([`clickhouse/`](clickhouse/)); enrichment inside the verdict path (`seen_before`, `dismissed_before`, `repo_mttr_h`, priority); materialized views for the 20-year posture timeline (~45 ms), a fix funnel and an anomaly watch over the agents ([`clickhouse/README.md`](clickhouse/README.md)) |
+| **OpenAI** | `gpt-4.1` writes the replacement for the flagged span when the rule has no `fix:`; JSON output, temperature 0, guarded and verified before use ([`aegis/fix.py`](aegis/fix.py)) |
+| **GitHub** | Commit statuses, Issues, branches, PRs, labels, merges and SARIF uploads, all through Guild's GitHub credential |
+
+## How we know
+
+The model never decides what is vulnerable; Semgrep does, over the whole checkout, with no context window. Every repair must survive the static re-scan, the repo's own tests and a targeted test that fails on the vulnerable commit; a no-op fix is rejected. While building this we caught our own AI fixer "fixing" a bug by breaking the file's syntax and still getting a green check, because the gate ignored Semgrep's parse errors. The gate now fails on any file Semgrep cannot parse ([`docs/SEMGREP-FINDING.md`](docs/SEMGREP-FINDING.md)). Full write-up: [`docs/HOW-WE-KNOW.md`](docs/HOW-WE-KNOW.md).
 
 ## Run it
 
 ```bash
 uv sync && cp .env.example .env        # GITHUB_TOKEN, SCANNER_KEY, OPENAI_API_KEY, CLICKHOUSE_*, GUILD_*
 uv run python -m aegis.ch selftest     # schema + one round-trip row per table
-uv run python clickhouse/backfill.py   # optional: Semgrep over the fleet's git history → ClickHouse
+uv run python clickhouse/backfill.py   # optional: Semgrep over git history → ClickHouse
 ./run.sh                               # scanner on :8787 + cloudflared tunnel (URL in state/tunnel_url.txt)
-curl -s localhost:8787/healthz         # {"ok":true,"semgrep":true,"clickhouse":true,"auth":true}
-open http://localhost:8787/            # dashboard
-tests/self_audit.sh                    # Semgrep on AEGIS itself, exit 1 on any ERROR
+open http://localhost:8787/            # the control room
+tests/self_audit.sh                    # Semgrep on AEGIS itself
 semgrep scan --metrics=off --test --config rules/ rules/tests/
 ```
 
-Fleet (needs `gh` and `guild` logged in): `fleet/integration.sh` publishes the scanner integration from the tunnel URL, `fleet/deploy.sh` publishes the agents and creates the triggers from `fleet.json`, `fleet/policies.sh` applies the per-sentinel allow/deny policies. Demo kit for the live push: [`demo/snipbox/README.md`](demo/snipbox/README.md).
+Fleet setup (needs `gh` and `guild` logged in): `fleet/integration.sh` publishes the scanner integration, `fleet/deploy.sh` publishes the agents and creates the triggers from [`fleet.json`](fleet.json), `fleet/policies.sh` applies the per-agent policies. Demo kit for a live push: [`demo/snipbox/README.md`](demo/snipbox/README.md).
 
-## Repo layout
+<details>
+<summary><b>Repo layout</b></summary>
 
 ```
-aegis/          scanner service: server.py (scan/status/actions/insights), scanner.py (git + semgrep + traces),
-                fix.py (span-only patch), verify.py (L1/L2/L3), guard.py (handoff guard), rules_api.py (rule gate),
-                ch.py (ClickHouse), dashboard.py + static/ (control room)
-openapi.yaml    the scanner API Guild imports (scan_diff, scan_full, record_action, set_status, verify_fix,
-                fix_code, fleet_insights, propose_rule, list_rules, guard_artifact)
-rules/          bundled Semgrep rules + tests;  tests/self_audit.sh, tests/test_scanner.sh
+aegis/          scanner service: server.py, scanner.py (git + semgrep + traces), fix.py (span-only patch),
+                verify.py (L1/L2/L3), guard.py (handoff guard), rules_api.py (rule gate), ch.py (ClickHouse),
+                patrol.py, cli.py, dashboard.py + static/ (control room)
+openapi.yaml    the scanner API Guild imports
+rules/          bundled Semgrep rules + tests
 guild-agent/    sentinel, triage, remediator, verifier, warden, reporter, rulesmith, onboarder
 fleet/          deploy.sh, integration.sh, policies.sh, make-targets.sh;  fleet.json = agent → repos
-clickhouse/     schema.sql, backfill.py;  demo/snipbox/ = vuln.patch, fix.patch, regression test
-docs/           LIVE-RUN.md, HOW-WE-KNOW.md, SEMGREP-DEEP.md, SELF-AUDIT.md, STRATEGY.md, demo-checklist.md
+clickhouse/     schema.sql, views.sql, backfill.py
+docs/           LIVE-RUN.md, HOW-WE-KNOW.md, SEMGREP-DEEP.md, SEMGREP-FINDING.md, SELF-AUDIT.md
 ```
+</details>
 
 ## Team
 
-- Andrii Drok, Guild agents, fleet, scanner (`andriidrok01@gmail.com`)
-- Akmal Shovkatov, `Frontend` (`akmalshavkatov7@gmail.com`)
-- vincivv, ClickHouse, data, demo targets (`dialmair.7@gmail.com`)
+Built in one day at the **Cyberdefense Hackathon**, SF Tech Week 2026 ([project page](https://tokensand.com/p/aegis-2) · [demo video](https://youtu.be/qWBtfWlOsAU)).
+
+| | |
+|---|---|
+| **Dias Almat** · [@vincivv](https://github.com/vincivv) | ClickHouse, data, demo targets |
+| **Akmal Shovkatov** · [@Akmalchan](https://github.com/Akmalchan) | Scanner API, Semgrep rules, control room, Patrol, CLI |
+| **Andrii Drok** · [@andriidrok1](https://github.com/andriidrok1) | Guild agents, fleet, scanner |
