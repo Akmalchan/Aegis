@@ -573,8 +573,6 @@ main:has(#page-how:not([hidden])) ~ .sponsors { position: static; }
 .lp-block .block-head h2 { font-size: 40px; }
 .lp-block { padding: 20px 28px; }
 .lp-block .tl-card { padding-top: 18px; padding-bottom: 18px; }
-#page-live .fleet-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-#page-live .kstrip .k { padding: 12px 20px; }
 .hl-line { font-size: 19px; }
 
 /* D6: plain-English captions + stale-run label */

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://api.fontshare.com">
 <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=30">
+<link rel="stylesheet" href="/static/style.css?v=32">
 </head>
 <body>
 
@@ -24,60 +24,63 @@
 <!-- ============================ LIVE ============================ -->
 <section class="page" id="page-live">
 
-  <section class="hero hero-live">
-    <canvas id="flow" aria-hidden="true" hidden></canvas>
-    <div class="hl-row">
-      <h1 class="wordmark wm-sm">Aegis<i></i></h1>
-      <p class="hl-line">11 agents on Guild guard 9 repos. Every push: Semgrep finds &rarr; test proves &rarr; OpenAI fixes &rarr; re-checked &rarr; merged.</p>
+  <section class="hero">
+    <canvas id="flow" aria-hidden="true"></canvas>
+    <div class="hero-top">
       <span class="chip"><i class="dot"></i><span id="heroState">Fleet on watch</span></span>
+      <span class="hero-tag">Security agents for every repo.<br><span>Detect, fix, verify. Nobody clicks.</span></span>
+    </div>
+    <div class="hero-bottom">
+      <h1 class="wordmark">Aegis<i></i></h1>
+      <div class="hero-term">
+        <div class="ht-bar"><span class="dots"><i></i><i></i><i></i></span><span class="ht-title">aegis patrol <span id="hpSub">· live</span></span><span class="ht-live"><i></i>LIVE</span></div>
+        <ol class="ht-lines" id="hpList"><li class="ht-dim">› warming up…</li></ol>
+        <div class="ht-foot"><span>repos <b id="hpRepos">0</b></span><span>issues <b id="hpFind">0</b></span><span class="y">secrets <b id="hpSec">0</b></span></div>
+      </div>
+</div>
     </div>
   </section>
 
-  <div class="kstrip k4">
-    <div class="k"><span>Sentinels on duty</span><b id="kAgents">0</b></div>
+  <div class="kstrip">
+    <div class="k"><span>Agents on duty</span><b id="kAgents">0</b></div>
     <div class="k"><span>Repos guarded</span><b id="kRepos">0</b></div>
-    <div class="k"><span>Findings remembered</span><b id="kMem">–</b></div>
-    <div class="k"><span>Mean time to fix</span><b id="kMttr">–</b></div>
+    <div class="k"><span>Fixes shipped</span><b id="kFixed">0</b></div>
+    <div class="k"><span>Scan p50</span><b id="kScan">–</b></div>
+    <div class="k"><span>Time to fix</span><b id="kMttr">–</b></div>
   </div>
 
-  <section class="block lp-block">
-    <div class="block-head"><h2>Latest push.</h2><span class="sub"><span id="incTitle">No push yet</span> · <span id="incHint">Waiting for a push</span></span></div>
-    <p class="sec-cap">What the agents did with the most recent git push, step by step.</p>
+
+  <section class="block">
+    <div class="block-head"><h2>Fleet.</h2><span class="sub" id="fleetHint">Live</span></div>
+    <div class="split fleet-split">
+      <div class="dark-card map-card">
+        <div class="card-label"><span class="pill-y">Live</span> Agents and the repos they guard</div>
+        <svg id="map" viewBox="0 0 640 400" role="img" aria-label="Agents and the repositories they guard"></svg>
+      </div>
+      <div class="dark-card inc-card">
+        <div class="card-label"><span class="pill-y">Latest push</span> <span id="incHint">Waiting for a push</span></div>
+        <div class="inc-title" id="incTitle">No push yet</div>
+        <dl class="inc-rows" id="incFacts"></dl>
+        <div class="inc-total" id="incTotal"></div>
+      </div>
+    </div>
     <div class="tl-card">
       <ol class="htl" id="pipeline"></ol>
     </div>
   </section>
 
   <section class="block">
-    <div class="split fleet-split">
-      <div class="dark-card map-card">
-        <div class="card-label"><span class="pill-y">Live</span> Agents and the repos they guard <span class="sub" id="fleetHint"></span></div>
-        <p class="sec-cap">Each sentinel agent and the three repos it guards.</p>
-        <svg id="map" viewBox="0 0 640 400" role="img" aria-label="Agents and the repositories they guard"></svg>
-      </div>
-      <div class="roster-wrap">
-        <div class="card-label"><span class="pill-y">Agents</span> <span id="guildHint">Guild · connecting</span></div>
-        <p class="sec-cap">Every agent on Guild, what it did last.</p>
-        <div class="agent-grid" id="cards"><div class="empty">Waiting for Guild…</div></div>
+    <div class="block-head"><h2>Agents.</h2><span class="sub" id="guildHint">Guild · connecting</span></div>
+    <div class="split agents-split">
+      <div class="agent-grid" id="cards"><div class="empty">Waiting for Guild…</div></div>
+      <div class="dark-card ho-card">
+        <div class="card-label"><span class="pill-y">Guard</span> <span id="hoHint">Agent → agent handoffs, checked by Semgrep</span></div>
+        <ul class="handoffs" id="handoffs"><li class="empty">No handoffs yet</li></ul>
       </div>
     </div>
   </section>
 
-  <details class="block more">
-    <summary>More details</summary>
-    <div class="split">
-      <div class="dark-card inc-card">
-        <div class="card-label"><span class="pill-y">Latest push</span> In numbers</div>
-        <dl class="inc-rows" id="incFacts"></dl>
-        <div class="inc-total" id="incTotal"></div>
-      </div>
-      <div class="dark-card ho-card">
-        <div class="card-label"><span class="pill-y">Guard</span> <span id="hoHint">Handoffs checked by Semgrep</span></div>
-        <ul class="handoffs" id="handoffs"><li class="empty">No handoffs yet</li></ul>
-      </div>
-    </div>
-    <div class="kstrip"><div class="k"><span>Fixes shipped</span><b id="kFixed">0</b></div><div class="k"><span>Median scan time</span><b id="kScan">–</b></div></div>
-    <div class="patrol-sec" id="patrolSec">
+  <section class="block">
     <div class="block-head"><h2>Patrol.</h2><span class="sub">Fresh public repos, scanned live. Names masked, code never shown.</span></div>
     <div class="pstats">
       <div class="pstat"><b id="pRepos">0</b><span>repos scanned</span></div>
@@ -95,9 +98,11 @@
         <ul class="hbars" id="pRules"><li class="empty">Warming up</li></ul>
       </div>
     </div>
+    <div class="card chat-card">
+      <div class="chat-head"><span class="pill-y"><i class="live"></i>Fleet chat</span><span class="hp-sub" id="chatCount"></span></div>
+      <ol class="chat" id="feed"></ol>
     </div>
-    <div hidden><ol id="hpList"></ol><span id="hpSub"></span><b id="hpRepos"></b><b id="hpFind"></b><b id="hpSec"></b><span id="chatCount"></span><ol id="feed"></ol></div>
-  </details>
+  </section>
 </section>
 
 <!-- ============================ HOW ============================ -->
@@ -236,13 +241,13 @@
 <footer class="foot">
   <div class="foot-l"><span class="logo">Aegis<i></i></span><span>Cyberdefense Hackathon · SF Tech Week 2026</span></div>
 <button class="proj" id="projBtn" type="button" title="Projector mode (P)" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Projector</span></button>
-  <div class="foot-r"><span>Built by</span><b>Akmal Shovkatov</b><b>Andrii Drok</b><b>Vinci</b></div>
+  <div class="foot-r"><span>Built by</span><b>Dias Almat</b><b>Akmal Shovkatov</b><b>Andrii Drok</b></div>
 </footer>
 
 <div class="sponsors" id="sponsors"><span>Guild.ai — 11 hosted agents</span><span id="spSG">Semgrep — scan, guard, verify</span><span id="spCH">ClickHouse — fleet memory</span><span>OpenAI — span-only fixes</span></div>
 <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-k" id="toastK"></span><span class="toast-t" id="toastT"></span></div>
 <div class="tip" id="tip" hidden></div>
-<script src="/static/app.js?v=30"></script>
-<script src="/static/cli.js?v=2"></script>
+<script src="/static/app.js?v=32"></script>
+<script src="/static/cli.js?v=32"></script>
 </body>
 </html>
