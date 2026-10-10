@@ -33,10 +33,6 @@
   <a href="#team">Team</a>
 </p>
 
-<p align="center">
-  <img src="docs/aegis-cover.png" alt="AEGIS: a sentinel catches two findings on push, opens Issue #76 and fix PR #77, a test fails before the fix and passes after, the PR is merged" width="860" />
-</p>
-
 ---
 
 ## Why
